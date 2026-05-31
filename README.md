@@ -17,9 +17,13 @@ We keep important things. We revise old facts. We connect similar experiences.
 Repeated corrections change future behavior. Pressure, risk, and unfinished
 conflict become part of our working posture.
 
-LMC-5 is a small, offline-first memory architecture for AI agents built around
-that idea: do not chase a magical infinite prompt. Build a memory system that
-can recover continuity when it matters.
+LMC-5 is a small, offline-first memory architecture for **LLM agents** built
+around that idea: do not chase a magical infinite prompt. Build a memory system
+that can recover continuity when it matters.
+
+It is meant for GPT/Codex-style coding agents, personal assistant agents,
+Claude-style local workflows, and other long-running LLM tools that need memory
+without hard-binding themselves to one model provider.
 
 ## The Model
 
@@ -64,6 +68,20 @@ This repository provides a compact Python reference implementation with:
 - **JSONL import/export** for simple portability.
 - **CLI and Python API** with no network calls in the core.
 - **`doctor` checks** for local SQLite/FTS capability.
+
+## Who Is It For?
+
+LMC-5 is for builders who want a small memory layer for long-running LLM agents:
+
+- GPT or Codex-style coding agents that need to recover project context.
+- Local assistant workflows that need raw event logs plus curated memory.
+- Multi-model agent setups that should not lock memory to one provider.
+- Research prototypes comparing plain RAG, vector recall, and structured memory.
+- Developers who need redaction and fact evolution before injecting memory into prompts.
+
+The core is provider-free. You can use it with OpenAI models, Gemini, Voyage
+embeddings, Claude-style local tools, or a fully local stack. LMC-5 stores and
+surfaces memory; your agent decides how to use that context.
 
 ## Quickstart
 
