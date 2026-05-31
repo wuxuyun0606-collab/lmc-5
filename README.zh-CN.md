@@ -1,4 +1,6 @@
-# LMC-5
+# 五维活体记忆坐标
+
+**Living Memory Coordinate-5，简称 LMC-5。**
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -18,7 +20,7 @@ LMC-5 就是围绕这个想法做的小型、离线优先 agent memory 架构：
 
 ## 模型
 
-LMC-5 是 **Living Memory Coordinate-5**。它把记忆看成五个协作层，而不是一堆被召回的文本碎片：
+**Living Memory Coordinate-5**，简称 **LMC-5**。它把记忆看成五个协作层，而不是一堆被召回的文本碎片：
 
 | 坐标 | 名称 | 回答的问题 |
 |---|---|---|

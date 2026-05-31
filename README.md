@@ -1,4 +1,6 @@
-# LMC-5
+# Living Memory Coordinate-5
+
+**五维活体记忆坐标，简称 LMC-5。**
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -21,8 +23,8 @@ can recover continuity when it matters.
 
 ## The Model
 
-LMC-5 stands for **Living Memory Coordinate-5**. It treats memory as five
-cooperating layers instead of a bag of retrieved snippets:
+**Living Memory Coordinate-5**, or **LMC-5**, treats memory as five cooperating
+layers instead of a bag of retrieved snippets:
 
 | Axis | Name | What It Answers |
 |---|---|---|
