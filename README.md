@@ -2,6 +2,8 @@
 
 **Recoverable continuity, not infinite context.**
 
+![A small AI robot walking home from an open-source workshop with a glowing bag of tokens and a compute lunchbox.](docs/assets/little-ai-earns-tokens.png)
+
 Every model context window has a ceiling. Maybe it is 100k tokens. Maybe it is
 1M. Maybe one day it is much larger. It is still not infinite, and the longer it
 gets, the more expensive, noisy, and fragile it becomes.
