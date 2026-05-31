@@ -4,6 +4,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+> 给 GPT / Codex 风格 agent 用的可恢复记忆层：raw events、curated memory、
+> 事实演化、关系网、向量检索和脱敏。不是又一个普通向量库。
+
 **要可恢复的连续性，不要幻想无限上下文。**
 
 ![一个小 AI 机器人从开源工坊下班回家，手里拎着发光的 tokens 和 compute 小箱子。](docs/assets/little-ai-earns-tokens.png)

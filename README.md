@@ -4,6 +4,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+> A recoverable memory layer for GPT/Codex-style agents: raw events, curated
+> memory, fact evolution, relations, vectors, and redaction. Not another vector DB.
+
 **Recoverable continuity, not infinite context.**
 
 ![A small AI robot walking home from an open-source workshop with a glowing bag of tokens and a compute lunchbox.](docs/assets/little-ai-earns-tokens.png)
