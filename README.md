@@ -1,4 +1,4 @@
-# Living Memory Coordinate-5
+# Living Memory Coordinate-5 for LLM Agents
 
 **五维活体记忆坐标，简称 LMC-5。**
 
