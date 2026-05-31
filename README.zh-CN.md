@@ -15,8 +15,11 @@
 把相似经验连起来。反复被纠正的地方会改变下一次反应；压力、风险和没解决完的冲突，
 也会慢慢变成做事的手感。
 
-LMC-5 就是围绕这个想法做的小型、离线优先 agent memory 架构：不要追一个听起来很神的
+LMC-5 就是围绕这个想法做的小型、离线优先 **LLM agent memory** 架构：不要追一个听起来很神的
 “无限 prompt”，而是做一个在关键时刻能恢复连续性的记忆系统。
+
+它适合 GPT / Codex 这类 coding agent、个人助理 agent、Claude 风格的本地工作流，
+以及其他需要长期记忆但不想绑定单一模型厂商的 LLM 工具。
 
 ## 模型
 
@@ -58,6 +61,20 @@ surface()        -> 从两层里取出脱敏后的上下文
 - **JSONL 导入/导出**：方便迁移。
 - **CLI 和 Python API**：核心不需要联网。
 - **`doctor` 检查**：确认本地 SQLite / FTS 能力。
+
+## 给谁用？
+
+LMC-5 面向想给长期运行 LLM agents 加一层小型记忆系统的开发者：
+
+- GPT / Codex 风格的 coding agents：需要恢复项目上下文。
+- 本地助理工作流：需要 raw event logs 和 curated memory 同时存在。
+- 多模型 agent 系统：不希望记忆层绑定某一个 provider。
+- 研究原型：想比较普通 RAG、向量召回和结构化记忆。
+- 开发者工具：需要在把记忆注入 prompt 前先做脱敏和事实演化判断。
+
+核心是 provider-free。你可以把它接到 OpenAI models、Gemini、Voyage embeddings、
+Claude 风格本地工具，或者完全本地的 stack。LMC-5 负责保存和浮现记忆；
+你的 agent 决定如何使用这些上下文。
 
 ## 快速开始
 
