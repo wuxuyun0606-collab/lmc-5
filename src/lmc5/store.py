@@ -243,6 +243,40 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
 
             CREATE INDEX IF NOT EXISTS idx_vectors_lookup
               ON vectors(provider, model, dimension, input_type, owner_type);
+
+            CREATE TABLE IF NOT EXISTS event_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel TEXT NOT NULL DEFAULT 'default',
+                start_event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                end_event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                event_count INTEGER NOT NULL,
+                summary TEXT NOT NULL,
+                keywords_json TEXT NOT NULL DEFAULT '[]',
+                content_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_event_chunks_channel_start
+              ON event_chunks(channel, start_event_id);
+
+            CREATE TABLE IF NOT EXISTS chunk_events (
+                chunk_id INTEGER NOT NULL REFERENCES event_chunks(id) ON DELETE CASCADE,
+                event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                PRIMARY KEY(chunk_id, event_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chunk_events_event
+              ON chunk_events(event_id);
+
+            CREATE TABLE IF NOT EXISTS consolidation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                channel TEXT,
+                window_size INTEGER NOT NULL,
+                chunks_created INTEGER NOT NULL DEFAULT 0,
+                observations_created INTEGER NOT NULL DEFAULT 0,
+                notes_json TEXT NOT NULL DEFAULT '{}'
+            );
             """
         )
         self.rebuild_index()
