@@ -63,6 +63,7 @@ This repository provides a compact Python reference implementation with:
 - **SQLite vector index** for portable cosine-similarity search.
 - **One-hop relation expansion** so connected memories surface together.
 - **Raw event journal** for black-box session capture.
+- **Event chunk consolidation** for building reviewable observations from raw sessions.
 - **Mixed surfacing** across curated memories and raw events.
 - **Fact-key supersession** so old facts can be preserved without staying current.
 - **Experience signals** for risk, urgency, tension, and response posture.
@@ -109,6 +110,7 @@ lmc5 log-event --db demo.sqlite \
   --role user \
   --channel demo \
   --content "Can you recover the production rollback notes from earlier?"
+lmc5 consolidate --db demo.sqlite --window-size 20
 lmc5 surface --db demo.sqlite "production rollback"
 lmc5 patrol --db demo.sqlite
 lmc5 doctor --db demo.sqlite
@@ -127,6 +129,29 @@ Example output:
 2.15 #2 Post-change verification (related:1)
 surface: 2 memories, 1 events
 ```
+
+## Chunk Consolidation / Awareness Layer
+
+Raw events are evidence, not durable belief. LMC-5 can group raw events into
+bounded chunks and promote those chunks into reviewable `observation` memories:
+
+```bash
+lmc5 consolidate --db demo.sqlite --window-size 20
+```
+
+This creates an intermediate awareness layer:
+
+```text
+raw events -> event chunks -> observations/current models -> agent response
+```
+
+The default consolidator is deterministic and offline. It deliberately avoids
+calling an LLM so tests and local demos stay provider-free. Production systems
+can replace the summarizer while keeping the same LMC-5 coordinates and audit
+tables.
+
+See [docs/xyzem_consolidation.md](docs/xyzem_consolidation.md) for the design
+notes.
 
 ## Python API
 

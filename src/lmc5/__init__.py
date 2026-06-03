@@ -1,5 +1,6 @@
 """LMC-5 reference implementation."""
 
+from .consolidation import ConsolidationResult, consolidate_events
 from .models import (
     EventRecord,
     MemoryRecord,
@@ -16,9 +17,11 @@ from .vector import cosine_similarity, toy_embed
 __all__ = [
     "MemoryRecord",
     "MemoryStore",
+    "ConsolidationResult",
     "EventRecord",
     "VectorRecord",
     "cosine_similarity",
+    "consolidate_events",
     "toy_embed",
     "MetabolismSuggestion",
     "RecallHit",

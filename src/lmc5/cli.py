@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .consolidation import consolidate_events
 from .metabolism import patrol
 from .redact import redact_obj
 from .store import MemoryStore
@@ -217,6 +218,19 @@ def cmd_patrol(args: argparse.Namespace) -> None:
     _print_json(suggestions)
 
 
+def cmd_consolidate(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        result = consolidate_events(
+            store,
+            window_size=args.window_size,
+            channel=args.channel,
+            max_events=args.max_events,
+            create_observations=not args.no_observations,
+        )
+    _print_json(result.to_dict())
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
     checks: list[dict[str, Any]] = []
     try:
@@ -372,6 +386,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_patrol = sub.add_parser("patrol", parents=[parent], help="run read-only metabolism checks")
     p_patrol.set_defaults(func=cmd_patrol)
+
+    p_consolidate = sub.add_parser(
+        "consolidate",
+        parents=[parent],
+        help="chunk raw events into reviewable awareness-layer observations",
+    )
+    p_consolidate.add_argument("--window-size", type=int, default=20)
+    p_consolidate.add_argument("--channel")
+    p_consolidate.add_argument("--max-events", type=int, default=500)
+    p_consolidate.add_argument(
+        "--no-observations",
+        action="store_true",
+        help="create event_chunks only, without candidate observation memories",
+    )
+    p_consolidate.set_defaults(func=cmd_consolidate)
 
     p_doctor = sub.add_parser("doctor", parents=[parent], help="check local database capabilities")
     p_doctor.set_defaults(func=cmd_doctor)

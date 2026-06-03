@@ -56,6 +56,7 @@ surface()        -> 从两层里取出脱敏后的上下文
 - **SQLite 向量索引**：便携的余弦相似度检索。
 - **一跳关系扩展**：让相关记忆一起浮现。
 - **Raw event journal**：保存会话黑匣子。
+- **事件 chunk consolidation**：从原始会话里生成可复核的 observation。
 - **Mixed surfacing**：同时召回精选记忆和原始事件。
 - **fact-key supersession**：保留旧事实，但不让旧事实继续冒充当前事实。
 - **体验信号**：风险、紧急度、张力和回应姿态。
@@ -102,6 +103,7 @@ lmc5 log-event --db demo.sqlite \
   --role user \
   --channel demo \
   --content "Can you recover the production rollback notes from earlier?"
+lmc5 consolidate --db demo.sqlite --window-size 20
 lmc5 surface --db demo.sqlite "production rollback"
 lmc5 patrol --db demo.sqlite
 lmc5 doctor --db demo.sqlite
@@ -120,6 +122,26 @@ PYTHONPATH=src python examples/demo.py
 2.15 #2 Post-change verification (related:1)
 surface: 2 memories, 1 events
 ```
+
+## Chunk Consolidation / 意识可用层
+
+Raw events 是证据，不是长期信念。LMC-5 可以把原始事件分组成有边界的
+chunks，再把 chunk 提升成待复核的 `observation` 记忆：
+
+```bash
+lmc5 consolidate --db demo.sqlite --window-size 20
+```
+
+这会形成一个中间层：
+
+```text
+raw events -> event chunks -> observations/current models -> agent response
+```
+
+默认 consolidator 是确定性、离线的，不调用外部 LLM，方便测试和本地 demo。
+生产系统可以替换 summarizer，但保留同一套 LMC-5 坐标和审计表。
+
+设计说明见 [docs/xyzem_consolidation.md](docs/xyzem_consolidation.md)。
 
 ## Python API
 
