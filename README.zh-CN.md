@@ -96,6 +96,15 @@ provider-free，适配器可以后续添加，不把记忆层锁死到某一个 
 
 具体 Claude Code 接入方式见 [docs/claude_code.md](docs/claude_code.md)。
 
+## 项目猜想
+
+这个项目的 thesis 是：长期运行的 agents 需要一套记忆生命周期，而不只是更大的 prompt
+或又一个向量库。面向审核和贡献者的论证、可证伪问题和 demo 形态见
+[docs/project_hypothesis.md](docs/project_hypothesis.md)。
+
+如果要补申请材料，见 [docs/why_openai.md](docs/why_openai.md)：为什么 Claude Code
+是重要使用场景，但 OpenAI / GPT-class 评测仍然有价值。
+
 ## 快速开始
 
 ```bash
