@@ -4,8 +4,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> A recoverable memory layer for GPT/Codex-style agents: raw events, curated
-> memory, fact evolution, relations, vectors, and redaction. Not another vector DB.
+> A recoverable memory layer for Claude Code, Codex, and other coding agents:
+> raw events, curated memory, fact evolution, relations, vectors, and redaction.
+> Not another vector DB.
 
 **Recoverable continuity, not infinite context.**
 
@@ -24,8 +25,8 @@ LMC-5 is a small, offline-first memory architecture for **LLM agents** built
 around that idea: do not chase a magical infinite prompt. Build a memory system
 that can recover continuity when it matters.
 
-It is meant for GPT/Codex-style coding agents, personal assistant agents,
-Claude-style local workflows, and other long-running LLM tools that need memory
+It is meant for Claude Code, Codex-style coding agents, personal assistant
+agents, local CLI workflows, and other long-running LLM tools that need memory
 without hard-binding themselves to one model provider.
 
 ## The Model
@@ -77,15 +78,33 @@ This repository provides a compact Python reference implementation with:
 
 LMC-5 is for builders who want a small memory layer for long-running LLM agents:
 
-- GPT or Codex-style coding agents that need to recover project context.
+- Claude Code and Codex-style coding agents that need to recover project context.
 - Local assistant workflows that need raw event logs plus curated memory.
 - Multi-model agent setups that should not lock memory to one provider.
 - Research prototypes comparing plain RAG, vector recall, and structured memory.
 - Developers who need redaction and fact evolution before injecting memory into prompts.
 
 The core is provider-free. You can use it with OpenAI models, Gemini, Voyage
-embeddings, Claude-style local tools, or a fully local stack. LMC-5 stores and
+embeddings, Claude Code hooks, MCP sidecars, shell wrappers, or a fully local stack. LMC-5 stores and
 surfaces memory; your agent decides how to use that context.
+
+## Claude Code / Codex Compatibility
+
+LMC-5 is intentionally a local CLI and Python library, so it can sit beside
+Claude Code, Codex, or another coding agent without becoming part of their
+runtime. Common integration patterns:
+
+- **Shell wrapper**: call `lmc5 surface` before launching an agent and prepend the redacted output to your project instructions.
+- **Claude Code hooks**: use `lmc5 log-event` for prompt/tool events and `lmc5 surface` for session-start or user-prompt context.
+- **MCP sidecar**: expose `recall`, `surface`, `log-event`, and `consolidate` as tools while keeping the SQLite store local.
+- **Codex or other CLI agents**: run the same commands from pre/post task scripts.
+
+The core package does not ship a Claude Code hook installer yet. That is
+deliberate: the storage, redaction, and lifecycle rules stay provider-free, and
+adapters can be added without locking the memory layer to one agent.
+
+See [docs/claude_code.md](docs/claude_code.md) for concrete Claude Code
+integration patterns.
 
 ## Quickstart
 

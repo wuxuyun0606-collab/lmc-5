@@ -4,8 +4,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> 给 GPT / Codex 风格 agent 用的可恢复记忆层：raw events、curated memory、
-> 事实演化、关系网、向量检索和脱敏。不是又一个普通向量库。
+> 给 Claude Code、Codex 和其他 coding agent 用的可恢复记忆层：
+> raw events、curated memory、事实演化、关系网、向量检索和脱敏。
+> 不是又一个普通向量库。
 
 **要可恢复的连续性，不要幻想无限上下文。**
 
@@ -21,7 +22,7 @@
 LMC-5 就是围绕这个想法做的小型、离线优先 **LLM agent memory** 架构：不要追一个听起来很神的
 “无限 prompt”，而是做一个在关键时刻能恢复连续性的记忆系统。
 
-它适合 GPT / Codex 这类 coding agent、个人助理 agent、Claude 风格的本地工作流，
+它适合 Claude Code、Codex 风格 coding agent、个人助理 agent、本地 CLI 工作流，
 以及其他需要长期记忆但不想绑定单一模型厂商的 LLM 工具。
 
 ## 模型
@@ -70,15 +71,30 @@ surface()        -> 从两层里取出脱敏后的上下文
 
 LMC-5 面向想给长期运行 LLM agents 加一层小型记忆系统的开发者：
 
-- GPT / Codex 风格的 coding agents：需要恢复项目上下文。
+- Claude Code 和 Codex 风格 coding agents：需要恢复项目上下文。
 - 本地助理工作流：需要 raw event logs 和 curated memory 同时存在。
 - 多模型 agent 系统：不希望记忆层绑定某一个 provider。
 - 研究原型：想比较普通 RAG、向量召回和结构化记忆。
 - 开发者工具：需要在把记忆注入 prompt 前先做脱敏和事实演化判断。
 
 核心是 provider-free。你可以把它接到 OpenAI models、Gemini、Voyage embeddings、
-Claude 风格本地工具，或者完全本地的 stack。LMC-5 负责保存和浮现记忆；
+Claude Code hooks、MCP sidecar、shell wrapper，或者完全本地的 stack。LMC-5 负责保存和浮现记忆；
 你的 agent 决定如何使用这些上下文。
+
+## Claude Code / Codex 兼容性
+
+LMC-5 故意做成本地 CLI 和 Python library，所以它可以放在 Claude Code、Codex
+或其他 coding agent 旁边，而不是绑死进某一个运行时。常见接法：
+
+- **Shell wrapper**：启动 agent 前先跑 `lmc5 surface`，把脱敏后的上下文拼进项目指令。
+- **Claude Code hooks**：用 `lmc5 log-event` 记录 prompt/tool 事件，用 `lmc5 surface` 做 SessionStart 或 UserPromptSubmit 注入。
+- **MCP sidecar**：把 `recall`、`surface`、`log-event`、`consolidate` 暴露成工具，同时 SQLite 仍留在本地。
+- **Codex 或其他 CLI agent**：在 pre/post task scripts 里调用同样的命令。
+
+核心包暂时不内置 Claude Code hook installer。这是有意为之：存储、脱敏和生命周期规则保持
+provider-free，适配器可以后续添加，不把记忆层锁死到某一个 agent。
+
+具体 Claude Code 接入方式见 [docs/claude_code.md](docs/claude_code.md)。
 
 ## 快速开始
 

@@ -12,7 +12,9 @@ smaller, original offline-first event journal inside the LMC-5 coordinate model.
 
 - LMC-5 uses `event journal` terminology instead of `imprint`.
 - LMC-5 keeps raw events separate from curated X/Y/Z/E/M memories.
-- LMC-5 does not include MCP or Claude Code hook integration in the core.
+- LMC-5 does not include MCP or Claude Code hook installers in the core; it is
+  intentionally compatible through CLI, Python API, wrapper scripts, hooks, or
+  sidecar adapters.
 - LMC-5 keeps the default package network-free and provider-free.
 - LMC-5 uses read-only patrol checks; lifecycle mutation remains explicit.
 
