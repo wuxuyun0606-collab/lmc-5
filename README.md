@@ -106,6 +106,17 @@ adapters can be added without locking the memory layer to one agent.
 See [docs/claude_code.md](docs/claude_code.md) for concrete Claude Code
 integration patterns.
 
+## Project Hypothesis
+
+The project thesis is that long-running agents need a memory lifecycle, not just
+a larger prompt or another vector store. See
+[docs/project_hypothesis.md](docs/project_hypothesis.md) for the reviewer-facing
+argument, falsifiable questions, and demo shape.
+
+For application framing, see [docs/why_openai.md](docs/why_openai.md) on why
+OpenAI / GPT-class evaluation is useful even though Claude Code is a key
+workflow target.
+
 ## Quickstart
 
 ```bash
