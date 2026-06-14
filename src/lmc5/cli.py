@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .consolidation import consolidate_events
+from .fact_evolution import run_z_audit
+from .hippocampus import run_hippocampus
 from .metabolism import patrol
 from .redact import redact_obj
 from .store import MemoryStore
@@ -125,6 +127,13 @@ def cmd_surface(args: argparse.Namespace) -> None:
     _print_json(result)
 
 
+def cmd_stats(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        result = store.stats()
+    _print_json(result)
+
+
 def _parse_vector_arg(value: str) -> list[float]:
     parsed = json.loads(value)
     if not isinstance(parsed, list):
@@ -231,6 +240,41 @@ def cmd_consolidate(args: argparse.Namespace) -> None:
     _print_json(result.to_dict())
 
 
+def cmd_hippocampus(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        if args.consolidate:
+            consolidate_events(
+                store,
+                window_size=args.window_size,
+                channel=args.channel,
+                max_events=args.max_events,
+                create_observations=False,
+            )
+        result = run_hippocampus(
+            store,
+            channel=args.channel,
+            limit_chunks=args.limit_chunks,
+            min_importance=args.min_importance,
+            max_promote=args.max_promote,
+            apply=args.apply,
+            create_relations=not args.no_relations,
+        )
+    _print_json(result.to_dict())
+
+
+def cmd_z_audit(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        result = run_z_audit(
+            store,
+            limit=args.limit,
+            apply=args.apply,
+            include_existing=args.include_existing,
+        )
+    _print_json(result.to_dict())
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
     checks: list[dict[str, Any]] = []
     try:
@@ -306,6 +350,10 @@ def build_parser() -> argparse.ArgumentParser:
             "same_issue",
             "same_project",
             "same_tool",
+            "same_event",
+            "same_topic",
+            "temporal_sequence",
+            "emotional_link",
             "cause_effect",
             "supports",
             "contradicts",
@@ -346,6 +394,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_surface.add_argument("--memory-limit", type=int)
     p_surface.set_defaults(func=cmd_surface)
 
+    p_stats = sub.add_parser(
+        "stats",
+        parents=[parent],
+        help="show database counts and coverage",
+    )
+    p_stats.set_defaults(func=cmd_stats)
+
     p_vector_upsert = sub.add_parser("vector-upsert", parents=[parent], help="store a vector for a memory or event")
     p_vector_upsert.add_argument("--owner-type", required=True, choices=["memory", "event"])
     p_vector_upsert.add_argument("--owner-id", required=True, type=int)
@@ -377,7 +432,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_recall = sub.add_parser("recall", parents=[parent], help="recall memories by text query")
     p_recall.add_argument("query")
     p_recall.add_argument("--limit", type=int, default=5)
-    p_recall.add_argument("--no-relations", action="store_true", help="disable one-hop relation expansion")
+    p_recall.add_argument(
+        "--no-relations",
+        action="store_true",
+        help="disable two-hop typed relation expansion",
+    )
     p_recall.set_defaults(func=cmd_recall)
 
     p_list = sub.add_parser("list", parents=[parent], help="list recent memories")
@@ -401,6 +460,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="create event_chunks only, without candidate observation memories",
     )
     p_consolidate.set_defaults(func=cmd_consolidate)
+
+    p_hippocampus = sub.add_parser(
+        "hippocampus",
+        parents=[parent],
+        help="preview or apply a gated chunk-to-memory hippocampus pass",
+    )
+    p_hippocampus.add_argument("--channel")
+    p_hippocampus.add_argument("--limit-chunks", type=int, default=50)
+    p_hippocampus.add_argument("--min-importance", type=int, default=7)
+    p_hippocampus.add_argument("--max-promote", type=int, default=10)
+    p_hippocampus.add_argument(
+        "--apply",
+        action="store_true",
+        help="write accepted candidates and safe relations; default is dry-run",
+    )
+    p_hippocampus.add_argument(
+        "--no-relations",
+        action="store_true",
+        help="skip relation planning/application",
+    )
+    p_hippocampus.add_argument(
+        "--consolidate",
+        action="store_true",
+        help="first create event chunks from unconsolidated raw events",
+    )
+    p_hippocampus.add_argument("--window-size", type=int, default=20)
+    p_hippocampus.add_argument("--max-events", type=int, default=500)
+    p_hippocampus.set_defaults(func=cmd_hippocampus)
+
+    p_z_audit = sub.add_parser(
+        "z-audit",
+        parents=[parent],
+        help="preview or record pending Z-axis conflict audits",
+    )
+    p_z_audit.add_argument("--limit", type=int, default=100)
+    p_z_audit.add_argument(
+        "--apply",
+        action="store_true",
+        help="write pending audit rows; default is dry-run",
+    )
+    p_z_audit.add_argument(
+        "--include-existing",
+        action="store_true",
+        help="include pairs that already have an audit row",
+    )
+    p_z_audit.set_defaults(func=cmd_z_audit)
 
     p_doctor = sub.add_parser("doctor", parents=[parent], help="check local database capabilities")
     p_doctor.set_defaults(func=cmd_doctor)

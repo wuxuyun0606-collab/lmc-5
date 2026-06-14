@@ -1,12 +1,25 @@
 # Credits and Prior Art
 
-LMC-5's raw event journal was inspired by public design ideas in
-[`Qizhan7/imprint-memory`](https://github.com/Qizhan7/imprint-memory),
-especially the separation between automatic conversation capture and curated
-long-term memory.
+LMC-5's event chunking layer was inspired by 盏老师's `imprint-memory`
+chunk design, especially the separation between automatic conversation capture,
+bounded chunks, and curated long-term memory.
 
 This repository does not copy `imprint-memory` source code. It implements a
 smaller, original offline-first event journal inside the LMC-5 coordinate model.
+
+LMC-5 also credits these design influences:
+
+- 鹤见老师's `ombre-brain`, for the breath design: scheduled maintenance
+  should have rhythm instead of becoming an always-on mutation daemon.
+- 盏老师's `imprint-memory`, for the chunk design: raw session material
+  needs bounded evidence units before it becomes curated memory.
+- 电脑眠眠豹, for the chord emotion design: affect and salience
+  can be represented as composed signals rather than a single flat label.
+- 离落老师, for the forge design: renewed agent sessions can
+  be launched from durable memory instead of pretending one prompt can live
+  forever.
+- 蛋宝老师, for the swap design: memory stores need snapshot-based
+  rollback before scheduled writes, migrations, or model-assisted maintenance.
 
 ## Differences
 
@@ -17,6 +30,8 @@ smaller, original offline-first event journal inside the LMC-5 coordinate model.
   sidecar adapters.
 - LMC-5 keeps the default package network-free and provider-free.
 - LMC-5 uses read-only patrol checks; lifecycle mutation remains explicit.
+- LMC-5 describes breath, chunks, chord emotion, forge, and swap as
+  deployment/design patterns, not hidden hosted services in the core package.
 
 ## Why Attribution Is Explicit
 

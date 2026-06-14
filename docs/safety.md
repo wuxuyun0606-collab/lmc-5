@@ -11,6 +11,7 @@ incidents. The default implementation takes a conservative stance.
 - Do not print raw memory into prompts without redaction.
 - Do not send raw memory to embedding or ranking services without redaction.
 - Do not auto-delete or auto-supersede facts without an audit trail.
+- Do not turn a contradiction candidate into supersession without a reviewed Z verdict.
 - Do not let emotional or experiential metadata override verified facts.
 - Do not treat one dramatic event as a permanent identity rule.
 
@@ -40,3 +41,27 @@ with a blindfold and a kazoo.
 
 It does not mutate records. Human review remains the default for lifecycle
 changes.
+
+## Z-Axis Audit Boundary
+
+`lmc5 z-audit` is dry-run by default. It may list same-`fact_key` conflicts and
+explicit `contradicts` relation pairs, but it does not call a model, does not
+write audit rows, and does not supersede facts.
+
+`lmc5 z-audit --apply` only writes pending `z_conflict_audits` rows. It is still
+not permission to mutate memory. Supersession should be a separate reviewed
+lifecycle action with an audit trail.
+
+## VPS Deployment Boundary
+
+A 7*24 hour VPS deployment is useful because it gives the memory layer a stable
+host, scheduler, and backup target. It also increases the blast radius if you
+misconfigure it. Treat the SQLite database as private state:
+
+- Run with the least filesystem permissions that still work.
+- Keep `hippocampus` dry-run until the candidate output is predictable.
+- Use `hippocampus --apply` only from a controlled job with logs.
+- Back up the database before enabling scheduled writes.
+- Never place real provider keys, DSNs, passwords, or account tokens in memory.
+- Keep forge output redacted before injecting it into a new agent session.
+- Keep swap snapshots before migrations, model-assisted jobs, and scheduled writes.

@@ -25,13 +25,26 @@ The goal is to help agents keep durable working memory without treating old
 snippets as always-current truth.
 
 The initial implementation is an offline-first Python package with SQLite
-storage, FTS5 text recall, one-hop relation-expanded recall, a raw event
+storage, FTS5 text recall, two-hop typed relation-expanded recall, a raw event
 journal, mixed surfacing across curated memories and raw events, a CLI,
 redaction helpers, JSONL import/export, fact-key supersession, relation
 storage, explainable scoring, a demo workflow, tests, CI, and read-only
 lifecycle patrol checks. It is intentionally conservative: no network calls, no
 hidden model provider, no example credentials, no automatic deletion, and no
 automatic lifecycle mutation from patrol checks.
+
+The current design is also shaped for a small VPS: append-only event capture can
+run 7*24 hours, while scheduled consolidation, hippocampus dry-runs, and
+read-only patrol checks maintain memory continuity across sleeping or restarted
+agent windows. This makes LMC-5 a survivable memory layer, not just a local demo.
+
+Z-axis conflict handling now follows the same conservative shape: dry-run first,
+provider-free by default, pending audit rows on explicit apply, and no automatic
+supersession from contradiction candidates.
+
+The VPS deployment model includes a forge pattern for renewing sessions from
+durable memory and a swap pattern for snapshot-based rollback before scheduled
+writes or model-assisted maintenance.
 
 ## Why It Matters
 

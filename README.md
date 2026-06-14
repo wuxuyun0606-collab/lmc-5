@@ -10,7 +10,7 @@
 
 **Recoverable continuity, not infinite context.**
 
-![A small AI robot walking home from an open-source workshop with a glowing bag of tokens and a compute lunchbox.](docs/assets/little-ai-earns-tokens.png)
+![Hand-drawn LMC-5 open memory plan: relation graph, timeline, fact evolution, chord emotion memory, and memory metabolism around a notebook.](docs/assets/little-ai-earns-tokens.png)
 
 Every model context window has a ceiling. Maybe it is 100k tokens. Maybe it is
 1M. Maybe one day it is much larger. It is still not infinite, and the longer it
@@ -62,11 +62,17 @@ This repository provides a compact Python reference implementation with:
 - **SQLite storage** for curated memories, relations, and raw events.
 - **FTS5 recall with LIKE fallback** for offline keyword search.
 - **SQLite vector index** for portable cosine-similarity search.
-- **One-hop relation expansion** so connected memories surface together.
+- **Two-hop typed relation expansion** so connected memories surface with
+  relation-type weights and distance decay.
 - **Raw event journal** for black-box session capture.
 - **Event chunk consolidation** for building reviewable observations from raw sessions.
+- **Night hippocampus pass** for gated chunk-to-memory promotion, dry-run first.
+- **VPS-friendly 7*24 hour lifecycle** for always-on event capture, scheduled
+  consolidation, hippocampus review, and patrol checks.
 - **Mixed surfacing** across curated memories and raw events.
 - **Fact-key supersession** so old facts can be preserved without staying current.
+- **Z-axis conflict audit** so contradiction candidates enter pending review
+  instead of auto-superseding facts.
 - **Experience signals** for risk, urgency, tension, and response posture.
 - **Read-only metabolism patrols** for duplicate facts, review backlog, and thread-split candidates.
 - **Redaction helpers** for recall output and embedding input.
@@ -81,6 +87,8 @@ LMC-5 is for builders who want a small memory layer for long-running LLM agents:
 - Claude Code and Codex-style coding agents that need to recover project context.
 - Local assistant workflows that need raw event logs plus curated memory.
 - Multi-model agent setups that should not lock memory to one provider.
+- VPS-hosted personal agents that need a small 7*24 hour memory service instead
+  of a fragile desktop-only journal.
 - Research prototypes comparing plain RAG, vector recall, and structured memory.
 - Developers who need redaction and fact evolution before injecting memory into prompts.
 
@@ -105,6 +113,66 @@ adapters can be added without locking the memory layer to one agent.
 
 See [docs/claude_code.md](docs/claude_code.md) for concrete Claude Code
 integration patterns.
+
+## VPS / 7*24 Hour Deployment
+
+LMC-5 is especially well-suited to a small VPS deployment. The core is a local
+CLI plus SQLite, so an always-on host can keep the memory layer alive even when
+the agent window sleeps:
+
+```text
+agent hooks / sidecar
+  -> lmc5 log-event
+  -> scheduled lmc5 consolidate
+  -> scheduled lmc5 hippocampus
+  -> scheduled lmc5 z-audit
+  -> scheduled lmc5 patrol
+  -> lmc5 surface before future sessions
+```
+
+That makes it a practical 7*24 hour memory plan: raw events can keep landing,
+nightly jobs can prepare reviewable memories, and patrol checks can warn about
+backlog or drift. It is not magic infinite context, and it should not be an
+unsupervised memory editor. Keep `hippocampus` in dry-run until the output is
+trusted, use `--apply` only in a controlled job, restrict filesystem access,
+and back up the SQLite database. Boring survival beats dramatic amnesia. Every
+time.
+
+### Forge Plan
+
+The forge plan is the session-continuity layer. Instead of trying to keep one
+agent process alive forever, a VPS can forge the next session from durable
+memory:
+
+```text
+previous session events
+  -> consolidate / hippocampus / z-audit / patrol
+  -> lmc5 surface for the active project
+  -> next agent session starts with recovered context
+```
+
+This makes "infinite sessions" an operational pattern, not a fantasy prompt.
+Each window can end, compact, crash, or restart; the VPS keeps the memory clock
+running and forges a fresh launch context from reviewed memory plus recent
+evidence.
+
+### Swap Plan
+
+The swap plan is the durability and rollback layer. Keep one active memory
+store, one warm backup, and cold snapshots:
+
+```text
+active SQLite store
+  -> frequent snapshot
+  -> warm standby copy
+  -> cold backup before scheduled writes
+```
+
+Use swap when a write job behaves badly, a provider produces noisy candidates,
+or a migration needs rollback. The safe move is to swap back to the last good
+snapshot, inspect pending Z audits and hippocampus output, then re-apply only
+the accepted changes. Memory systems need a spare tire. Otherwise the first bad
+nightly job becomes archaeology.
 
 ## Project Hypothesis
 
@@ -141,8 +209,11 @@ lmc5 log-event --db demo.sqlite \
   --channel demo \
   --content "Can you recover the production rollback notes from earlier?"
 lmc5 consolidate --db demo.sqlite --window-size 20
+lmc5 hippocampus --db demo.sqlite --channel demo
+lmc5 z-audit --db demo.sqlite
 lmc5 surface --db demo.sqlite "production rollback"
 lmc5 patrol --db demo.sqlite
+lmc5 stats --db demo.sqlite
 lmc5 doctor --db demo.sqlite
 ```
 
@@ -183,6 +254,49 @@ tables.
 See [docs/xyzem_consolidation.md](docs/xyzem_consolidation.md) for the design
 notes.
 
+## Night Hippocampus
+
+`consolidate` creates evidence chunks. `hippocampus` decides which chunks are
+worth becoming reviewable memory:
+
+```bash
+lmc5 hippocampus --db demo.sqlite --channel demo
+lmc5 hippocampus --db demo.sqlite --channel demo --apply
+```
+
+The default is dry-run. `--apply` writes accepted candidates as `review`
+memories and applies only safe relation types such as `same_topic`,
+`same_event`, `temporal_sequence`, and `derived_from`. Higher-risk relation
+claims like `contradicts`, `cause_effect`, and `supports` stay in the review
+plan unless your application explicitly handles them.
+
+The core remains provider-free. A cheap model can act as a memory janitor by
+proposing candidates, but local LMC-5 code still owns redaction, importance
+gates, write decisions, and relation safety. In other words: the model may
+suggest what to remember; it does not get root access to memory. Sensible
+little leash. Very unfashionable. Very useful.
+
+## Z-Axis Conflict Audit
+
+Z is the fact-evolution line. It should protect truth, not cosplay as an
+overconfident delete button. LMC-5 therefore separates conflict discovery from
+fact mutation:
+
+```bash
+lmc5 z-audit --db demo.sqlite
+lmc5 z-audit --db demo.sqlite --apply
+```
+
+The default is dry-run. It lists candidate conflict pairs from same-`fact_key`
+review/current memories and explicit `contradicts` relations. It does not need
+an API key, does not call a model, does not write the audit table, and does not
+supersede anything. `--apply` only records pending rows in `z_conflict_audits`;
+the memories themselves remain untouched.
+
+Model-backed adjudication can be layered on later, but the safe contract stays:
+models may help label a pending audit, while local policy decides whether a fact
+is superseded, archived, or kept historical.
+
 ## Python API
 
 ```python
@@ -212,9 +326,9 @@ with MemoryStore("agent.sqlite") as store:
 
 ### English
 
-LMC-5 works offline today with SQLite FTS5, relation expansion, and explicit
-scoring. It also includes a lightweight SQLite vector index for embeddings. This
-is a portable reference store, not a production ANN database. For large
+LMC-5 works offline today with SQLite FTS5, two-hop typed relation expansion,
+and explicit scoring. It also includes a lightweight SQLite vector index for
+embeddings. This is a portable reference store, not a production ANN database. For large
 deployments, you can replace it with pgvector, LanceDB, FAISS, Milvus, or
 another vector backend while keeping the same LMC-5 metadata rules.
 
@@ -231,8 +345,8 @@ Recommended implementation:
   curated memories are behavioral memory.
 - Use `input_type=query` for user queries and `input_type=document` for stored
   memories/events when the provider supports it.
-- Fuse retrieval channels after search: lexical score + vector score + relation
-  expansion + LMC-5 priority score.
+- Fuse retrieval channels after search: lexical score + vector score + typed
+  relation expansion + LMC-5 priority score.
 - Redact before sending content to any remote embedding API.
 
 Offline demo:
@@ -355,6 +469,8 @@ src/lmc5/
   scoring.py      # explainable priority scoring
   store.py        # SQLite persistence
   metabolism.py   # read-only lifecycle suggestions
+  consolidation.py # raw event chunking into reviewable observations
+  hippocampus.py  # gated chunk-to-memory promotion
 docs/
   architecture.md
   credits.md
@@ -393,9 +509,9 @@ Use `log-event` for raw turns, tool observations, or environment notes. Use
 Use `surface` when an agent needs both polished memory and supporting raw
 context.
 
-This layer is inspired by public ideas from Qizhan7's `imprint-memory`, but the
-implementation here is original and intentionally uses different names and
-boundaries. See `docs/credits.md`.
+This layer is inspired by public chunking ideas from 盏老师's
+`imprint-memory`, but the implementation here is original and intentionally
+uses different names and boundaries. See `docs/credits.md`.
 
 ## Why This Exists
 
@@ -424,3 +540,11 @@ platform.
 - Add migration helpers for existing Markdown/JSONL memory logs.
 - Add benchmark fixtures for long-running coding-agent tasks.
 - Add optional model-assisted extraction for fact keys and relation candidates.
+
+## Acknowledgements
+
+Thanks to 鹤见老师's `ombre-brain` for the breath design, 盏老师's
+`imprint-memory` for the chunk design, 电脑眠眠豹 for the chord emotion design,
+离落老师 for the forge design, and 蛋宝老师 for the swap design. LMC-5 stands on
+these design conversations while keeping its own provider-free, auditable
+implementation.

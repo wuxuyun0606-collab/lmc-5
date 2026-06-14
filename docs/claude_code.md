@@ -61,6 +61,8 @@ An MCP adapter can expose these LMC-5 operations:
 - `surface(query)`
 - `log_event(role, content, channel)`
 - `consolidate(window_size, channel)`
+- `hippocampus(channel, apply=False)`
+- `z_audit(apply=False)`
 - `patrol()`
 
 The MCP server should be a thin adapter. The source of truth should remain the
@@ -72,6 +74,8 @@ local LMC-5 SQLite database and the provider-free Python API.
 Claude Code prompt/tool events
   -> lmc5 log-event
   -> lmc5 consolidate
+  -> lmc5 hippocampus
+  -> lmc5 z-audit
   -> review observation memories
   -> lmc5 surface before future tasks
 ```
@@ -80,9 +84,48 @@ Claude Code prompt/tool events
 
 ```bash
 lmc5 consolidate --db "$HOME/.lmc5/claude-code.sqlite" --window-size 20
+lmc5 hippocampus --db "$HOME/.lmc5/claude-code.sqlite"
+lmc5 z-audit --db "$HOME/.lmc5/claude-code.sqlite"
 ```
 
 This gives Claude Code a memory lifecycle instead of an ever-growing prompt.
+Use `lmc5 hippocampus --apply` only after you are comfortable with the dry-run
+output, or from a controlled nightly job.
+Use `lmc5 z-audit --apply` only to record pending conflict audits; it does not
+supersede facts.
+
+## VPS 7*24 Hour Shape
+
+For an always-on agent, run the memory layer beside Claude Code/Codex on a small
+VPS rather than tying it to a desktop window. A practical deployment is:
+
+- Agent hooks or an MCP sidecar append raw events with `lmc5 log-event`.
+- A scheduled job runs `lmc5 consolidate` to create bounded evidence chunks.
+- A nightly dry-run runs `lmc5 hippocampus` and stores or reports the candidate plan.
+- A Z-axis dry-run runs `lmc5 z-audit` to list contradiction candidates.
+- A controlled job may run `lmc5 hippocampus --apply` after the dry-run output is trusted.
+- `lmc5 patrol` stays read-only and reports backlog, duplicates, and review pressure.
+
+This is a 7*24 hour survival pattern, not permission to let a model rewrite
+memory unattended. Keep the database private, back it up, and keep redaction in
+front of any remote provider.
+
+### Forge
+
+Forge is the session-renewal pattern. At the end of a session, or before a new
+one starts, run the lifecycle checks and generate a fresh `surface` payload for
+the next agent window. The process may restart; memory continuity survives.
+
+```text
+old session -> event journal -> lifecycle jobs -> forged launch context -> new session
+```
+
+### Swap
+
+Swap is the rollback pattern. Keep snapshots around scheduled writes, especially
+before `hippocampus --apply`, future model-assisted Z verdicts, migrations, or
+adapter changes. If a job produces noisy memory, swap back to the last known
+good SQLite snapshot and replay only reviewed changes.
 
 ## Safety Boundary
 
@@ -96,4 +139,3 @@ For production agents:
 - Redact before embedding or sending content to remote providers.
 - Treat raw events as evidence, not automatically-current facts.
 - Use Z-axis fact evolution before injecting old conclusions into a new task.
-
