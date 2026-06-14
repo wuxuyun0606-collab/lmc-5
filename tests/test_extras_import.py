@@ -193,6 +193,70 @@ def test_e_axis_dispatcher_validates_inputs():
     assert d.scorer is not None
 
 
+def test_recall_pipeline_adapters_exist():
+    """All five channel adapters are exposed and callable-returning."""
+    from extras.pgvector_backend import recall_pipeline as rp
+    assert callable(rp.vector_search_adapter)
+    assert callable(rp.fts_search_adapter)
+    assert callable(rp.raw_events_search_adapter)
+    assert callable(rp.graph_expand_adapter)
+    assert callable(rp.emotion_resonate_adapter)
+
+
+def test_three_stage_fallback_logic():
+    """vector → curated FTS → raw events fallback chain fires at the right thresholds."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    calls = []
+
+    def fake_vector(q, k):
+        calls.append("vector")
+        return [RecallHit(source_id=1, title="x", content="x",
+                          score=0.20, channel="vector")]  # low score
+
+    def fake_fts(q, k):
+        calls.append("fts")
+        return [RecallHit(source_id=2, title="x", content="x",
+                          score=0.5, channel="fts")]
+
+    def fake_raw(q, k):
+        calls.append("raw_events")
+        return [RecallHit(source_id=3, title="x", content="x",
+                          score=0.4, channel="raw_events")]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        fts_search=fake_fts,
+        raw_events_search=fake_raw,
+        fts_floor=0.45,
+        raw_events_floor=0.30,
+    )
+    result = pipeline.recall("test query")
+    # vector(0.20) < raw_events_floor(0.30) < fts_floor(0.45) → all three fire
+    assert "vector" in calls
+    assert "fts" in calls
+    assert "raw_events" in calls
+    assert set(result.channels_used) >= {"vector", "fts", "raw_events"}
+
+    # Reset and test high vector score → no fallback
+    calls.clear()
+    def fake_vector_high(q, k):
+        calls.append("vector")
+        return [RecallHit(source_id=1, title="x", content="x",
+                          score=0.85, channel="vector")]
+    pipeline2 = RecallPipeline(
+        vector_search=fake_vector_high,
+        fts_search=fake_fts,
+        raw_events_search=fake_raw,
+        fts_floor=0.45,
+        raw_events_floor=0.30,
+    )
+    pipeline2.recall("test query")
+    assert "vector" in calls
+    assert "fts" not in calls
+    assert "raw_events" not in calls
+
+
 def test_night_dream_invokes_dispatcher_on_write():
     """NightDream.run(apply=True) calls dispatcher.maybe_score for every written candidate."""
     from extras.pgvector_backend.night_dream import NightDream, Candidate, Chunk

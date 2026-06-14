@@ -141,6 +141,34 @@ COMMENT ON COLUMN lmc5_curated_memories.source_file IS
     'runs do not double-write the same observation.';
 
 
+-- === Raw events journal（三层检索的兜底层 + SessionEnd 钩子的归档目标）-----
+-- 设计铁律：raw vs curated 严格分离。原始对话/工具调用进 raw_events，
+-- 经过 hippocampus 闸门才能晋升 curated_memories。三层检索的兜底层查这张表。
+CREATE TABLE IF NOT EXISTS lmc5_raw_events (
+    id              BIGSERIAL PRIMARY KEY,
+    session_id      TEXT,
+    role            TEXT,                     -- user / assistant / tool / system
+    channel         TEXT,                     -- claude_code / telegram / cli / ...
+    content         TEXT NOT NULL,
+    metadata        JSONB DEFAULT '{}'::jsonb,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    content_tsv     tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED,
+    UNIQUE (session_id, role, content)
+);
+
+CREATE INDEX IF NOT EXISTS lmc5_raw_events_tsv_idx
+    ON lmc5_raw_events USING GIN (content_tsv);
+CREATE INDEX IF NOT EXISTS lmc5_raw_events_created_idx
+    ON lmc5_raw_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS lmc5_raw_events_session_idx
+    ON lmc5_raw_events (session_id, created_at);
+
+COMMENT ON TABLE lmc5_raw_events IS
+    'Raw event journal (append-only). Hippocampus reads chunks from this table '
+    'to propose curated_memories candidates. Recall pipeline queries this table '
+    'as the third-stage FTS fallback when vector + curated FTS both miss.';
+
+
 -- === Cold storage（冷归档）--------------------------------------------
 CREATE TABLE IF NOT EXISTS lmc5_cold_storage (
     id              BIGSERIAL PRIMARY KEY,
