@@ -205,6 +205,7 @@ class NightDream:
         write_safe_relation: Optional[Callable[[int, int, str, float, str], None]] = None,
         queue_review_relation: Optional[Callable[[int, int, str, str], None]] = None,
         find_neighbors: Optional[Callable[[int, int], list[int]]] = None,
+        find_semantic_duplicates: Optional[Callable[[Candidate], list[int]]] = None,
         importance_threshold: int = 7,
         max_promote: int = 10,
         relation_top_k: int = 5,
@@ -217,6 +218,10 @@ class NightDream:
             write_safe_relation: (id_a, id_b, type, strength, reason) → 写关系
             queue_review_relation: (id_a, id_b, type, reason) → 入审计
             find_neighbors: (new_id, top_k) → 候选邻居 id（用于关系扩展）
+            find_semantic_duplicates: (candidate) → 库里相似度高于阈值的现有记忆 id 列表。
+                典型实现：调 vector_pgvector.find_duplicates(candidate 内容, 0.92)。
+                返回非空 = 已有同义记忆，跳过晋升（防 same_topic 阈值过低洪水：
+                历史教训是 0.7 阈值放进来 7242 条同义条）
             importance_threshold: 闸门阈值，低于这个不晋升
             max_promote: 单次最多晋升几条。超过的进 rejected[reason='exceeds_max_promote']，
                          不再静默 drop——长期跑会丢数据是 bug，是 feature 也要 log
@@ -229,6 +234,7 @@ class NightDream:
         self.write_safe_relation = write_safe_relation
         self.queue_review_relation = queue_review_relation
         self.find_neighbors = find_neighbors
+        self.find_semantic_duplicates = find_semantic_duplicates
         self.importance_threshold = importance_threshold
         self.max_promote = max_promote
         self.relation_top_k = relation_top_k
@@ -375,7 +381,29 @@ class NightDream:
                 self.log.error("night_dream.run: apply=True but write_candidate is None; "
                                "nothing will be written")
             else:
+                semantic_dedup_skipped = 0
                 for cand in promoted:
+                    # 语义去重：写入前先用向量相似度查库；命中阈值就跳过
+                    # （防止跨夜同义条目洪水——批内去重只管 (type, title) 签名）
+                    if self.find_semantic_duplicates is not None:
+                        try:
+                            dup_ids = self.find_semantic_duplicates(cand) or []
+                        except Exception as e:
+                            self.log.warning(
+                                "night_dream.run: find_semantic_duplicates failed for '%s': %s "
+                                "(skipping dedup check, will write)",
+                                cand.title[:40], e,
+                            )
+                            dup_ids = []
+                        if dup_ids:
+                            rejected.append((cand, f"semantic_dup:{dup_ids[0]}"))
+                            semantic_dedup_skipped += 1
+                            self.log.info(
+                                "night_dream.run: semantic dedup skipped '%s' "
+                                "-> existing id=%s",
+                                cand.title[:40], dup_ids[0],
+                            )
+                            continue
                     try:
                         wid = self.write_candidate(cand)
                     except Exception as e:
@@ -385,6 +413,9 @@ class NightDream:
                     if wid is not None:
                         written_ids.append(int(wid))
                         written_pairs.append((int(wid), cand))
+                if semantic_dedup_skipped:
+                    self.log.info("night_dream.run: %d candidates skipped by semantic dedup",
+                                  semantic_dedup_skipped)
                 if written_pairs:
                     safe_n, review_n = self.build_relations(written_pairs)
         return DreamResult(
