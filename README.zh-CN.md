@@ -10,7 +10,7 @@
 
 **要可恢复的连续性，不要幻想无限上下文。**
 
-![手绘 LMC-5 开源记忆方案：笔记本中围绕关系网、时间线、事实演化、和弦情绪记忆和记忆代谢。](docs/assets/little-ai-earns-tokens.png)
+![LMC-5 封面插画：手绘翻开的笔记本，围绕五个坐标——关系网、事实演化、和弦情绪、叙事时间线、记忆代谢——LMC-5 吉祥物在旁。可恢复的连续性，开源记忆方案。](docs/assets/cover.png)
 
 任何模型的上下文窗口都有上限。也许是 100k tokens，也许是 1M，也许未来会更大。
 但它仍然不是无限的；上下文越长，成本越高，噪声越多，也越脆弱。
@@ -24,6 +24,34 @@ LMC-5 就是围绕这个想法做的小型、离线优先 **LLM agent memory** �
 
 它适合 Claude Code、Codex 风格 coding agent、个人助理 agent、本地 CLI 工作流，
 以及其他需要长期记忆但不想绑定单一模型厂商的 LLM 工具。
+
+## 两套参考实现
+
+LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部署形态：
+
+| | Minimal（`src/lmc5/`） | Production（`extras/pgvector_backend/`） |
+|---|---|---|
+| 存储 | SQLite 零依赖 | PostgreSQL + pgvector halfvec + ivfflat ANN |
+| 召回 | FTS5 关键词 + 便携余弦 | 五通道并行：向量 / FTS 兜底 / Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现 |
+| 海马体 | 确定性切块 | LLM 提议候选 + 安全闸门 + 语义去重 |
+| 反思层 | — | 周报 / 月报叙事索引 |
+| E 轴 | 字段占位 | provider-agnostic LLM 评分器 + 重试 + min-confidence + 影子期 helper |
+| Hook | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` 三个 Claude Code 钩子 |
+| 运维 | — | Forge（会话连续性）+ Swap（快照回滚）参考模式 |
+| 适合 | 原型、demo、<5k 向量、离线 | VPS 7×24 部署、persona 级 agent、跨月连续性 |
+
+Minimal 版 `pip install -e .` + `python examples/demo.py` 就跑。
+Production 版需要 PostgreSQL 和至少一个 embedder API key——见
+[extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
+和 [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)。
+
+> 接下来的章节详细介绍 minimal 实现。Production 实现的入口文档：
+> [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)（管道层）、
+> [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md)（六个开关）、
+> [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md)（后端 + embedder 选择）、
+> [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)（VPS 7×24 + cron/systemd）、
+> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md)（会话连续 + 快照回滚）、
+> [docs/DEEPSEEK_INTEGRATION.md](docs/DEEPSEEK_INTEGRATION.md)（housekeeper LLM 角色）。
 
 ## 模型
 
@@ -360,25 +388,50 @@ LMC-5 不是聊天人格系统，也不是一个向量数据库穿了件实验�
 ## 目录结构
 
 ```text
-.github/workflows/
-  ci.yml          # test matrix
-src/lmc5/
-  cli.py          # 命令行入口
-  models.py       # dataclasses 和枚举
-  redact.py       # 输出和 embedding 输入脱敏
-  scoring.py      # 可解释 priority scoring
-  store.py        # SQLite 持久化
-  metabolism.py   # 只读生命周期建议
-  consolidation.py # raw event chunking，生成可复核 observation
-  vector.py       # 轻量向量工具
+.github/workflows/ci.yml             # test matrix
+
+src/lmc5/                            # MINIMAL 参考实现 — SQLite 离线
+  cli.py / store.py / vector.py
+  models.py / redact.py / scoring.py
+  consolidation.py / hippocampus.py / fact_evolution.py / metabolism.py
+
+extras/pgvector_backend/             # PRODUCTION 参考实现 — PG + ANN + LLM
+  config.py                          # LMC5Config — 所有可调参数集中一处
+  schema.sql                         # 所有表的完整 DDL
+  .env.example                       # PG / embedder / LLM / 前端 / 运维 模板
+  vector_pgvector.py                 # pgvector + halfvec + ivfflat ANN
+  night_dream.py                     # LLM 提议海马体 + 安全闸门 + 语义去重
+  narrative_timeline.py              # 周报 / 月报反思层
+  ob_recall.py                       # OB 评分 + 分类半衰期 + 时间涟漪
+  e_axis_scorer.py                   # provider-agnostic 情绪评分器
+  perception.py                      # 自发浮现调度
+  recall_pipeline.py                 # 五通道并行召回
+  embedders.py                       # Gemini / Voyage / OpenAI / 本地 BGE-M3 适配
+  rerankers.py                       # DeepSeek / OpenAI / Voyage rerank-2 适配
+  hooks/                             # Claude Code hook 入口
+    session_start.py                 #   开机注入 startup pack
+    user_prompt_submit.py            #   每轮多通道召回注入
+    session_end.py                   #   关窗 raw JSONL 归档
+
 docs/
-  architecture.md
-  credits.md
-  safety.md
+  architecture.md                    # 核心 XYZEM 架构
+  xyzem_consolidation.md             # chunk → curated 的工程逻辑
+  PERSONA_MODE.md                    # 给 AI 伴侣部署的六个策略开关
+  DEEPSEEK_INTEGRATION.md            # housekeeper LLM 跨轴的角色
+  VECTOR_BACKENDS.md                 # SQLite vs pgvector + embedder 选择
+  DEPLOYMENT.md                      # VPS 7×24 形态 + cron / systemd 计划
+  FORGE_AND_SWAP.md                  # 会话连续性 + 快照回滚
+  HOOKS_AND_RECALL.md                # 从仓库到对话的完整管道
+  credits.md / safety.md / project_hypothesis.md / why_openai.md / claude_code.md
+
 examples/
-  seed.jsonl
-  demo.py
+  seed.jsonl / demo.py
+
 tests/
+  test_consolidation.py / test_events.py / test_fact_evolution.py
+  test_hippocampus.py / test_metabolism.py / test_redact.py
+  test_store.py / test_vectors.py
+  test_extras_import.py              # production 实现的烟雾测试
 ```
 
 ## LMC-5 相比普通 RAG 多了什么
