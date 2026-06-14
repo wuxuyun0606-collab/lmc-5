@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
+  decides *how* to score) but forgot the layer that decides *which memories
+  should be scored at all*. Without it, `night_dream` never invokes the
+  scorer on write, and the E columns stay NULL unless the caller wires it
+  manually. New module `extras/pgvector_backend/e_axis_trigger.py`:
+  - `should_score_e_axis(candidate)` — type / keyword / relation-hint gate.
+    `relationship_moment`, `risk_boundary`, `preference` always fire; `fact`
+    and `engineering_decision` skip unless emotion keywords or
+    `emotional_link` hint say otherwise.
+  - `EMOTION_TRIGGER_KEYWORDS` — bilingual (CN/EN) keyword dictionary across
+    strong-emotion / relational / tension / physical-reaction categories.
+  - `EAxisDispatcher` — chains gate → scorer → write-back with full
+    exception isolation so a failed E score never blocks the underlying
+    memory write.
+  - `backfill_e_axis()` — nightly batch helper to score memories that
+    landed in the last 24 hours but missed live scoring.
+- **`NightDream` integration.** New optional `e_axis_dispatcher`
+  constructor argument. When provided, `run(apply=True)` auto-fires the
+  dispatcher for every successfully written candidate. Defaults to `None`
+  (backward-compatible with 0.2.0).
+
 ## 0.2.0 — XYZEM completion: production reference impl + pipe layer
 
 This release turns LMC-5 from a memory schema with one offline impl into a
