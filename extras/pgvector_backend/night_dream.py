@@ -259,6 +259,7 @@ class NightDream:
         queue_review_relation: Optional[Callable[[int, int, str, str], None]] = None,
         find_neighbors: Optional[Callable[[int, int], list[int]]] = None,
         find_semantic_duplicates: Optional[Callable[[Candidate], list[int]]] = None,
+        e_axis_dispatcher: Optional[Any] = None,
         importance_threshold: int = 7,
         max_promote: int = 10,
         relation_top_k: int = 5,
@@ -275,6 +276,9 @@ class NightDream:
                 典型实现：调 vector_pgvector.find_duplicates(candidate 内容, 0.92)。
                 返回非空 = 已有同义记忆，跳过晋升（防 same_topic 阈值过低洪水：
                 历史教训是 0.7 阈值放进来 7242 条同义条）
+            e_axis_dispatcher: 可选 EAxisDispatcher 实例。写入每条候选后会自动按
+                trigger 规则判断是否调 E scorer + 写回 valence/arousal/tension。
+                不传则 E 字段全留 NULL（与 0.2.0 行为兼容）
             importance_threshold: 闸门阈值，低于这个不晋升
             max_promote: 单次最多晋升几条。超过的进 rejected[reason='exceeds_max_promote']，
                          不再静默 drop——长期跑会丢数据是 bug，是 feature 也要 log
@@ -295,12 +299,19 @@ class NightDream:
                     f"NightDream: {name} must be callable or None, "
                     f"got {type(fn).__name__}"
                 )
+        # e_axis_dispatcher 是对象不是 callable，duck-type 检查 maybe_score 方法
+        if e_axis_dispatcher is not None and not hasattr(e_axis_dispatcher, "maybe_score"):
+            raise TypeError(
+                f"NightDream: e_axis_dispatcher must have a maybe_score(memory_id, candidate) "
+                f"method, got {type(e_axis_dispatcher).__name__}"
+            )
         self.proposer = proposer or deterministic_proposer
         self.write_candidate = write_candidate
         self.write_safe_relation = write_safe_relation
         self.queue_review_relation = queue_review_relation
         self.find_neighbors = find_neighbors
         self.find_semantic_duplicates = find_semantic_duplicates
+        self.e_axis_dispatcher = e_axis_dispatcher
         self.importance_threshold = importance_threshold
         self.max_promote = max_promote
         self.relation_top_k = relation_top_k
@@ -479,6 +490,16 @@ class NightDream:
                     if wid is not None:
                         written_ids.append(int(wid))
                         written_pairs.append((int(wid), cand))
+                        # E 轴自动评分：dispatcher 内部按 trigger 规则决定是否调 scorer。
+                        # 异常永不阻塞主流程——E 分挂了，记忆还在。
+                        if self.e_axis_dispatcher is not None:
+                            try:
+                                self.e_axis_dispatcher.maybe_score(int(wid), cand)
+                            except Exception as e:
+                                self.log.warning(
+                                    "night_dream.run: e_axis dispatcher raised for #%s: %s",
+                                    wid, e,
+                                )
                 if semantic_dedup_skipped:
                     self.log.info("night_dream.run: %d candidates skipped by semantic dedup",
                                   semantic_dedup_skipped)

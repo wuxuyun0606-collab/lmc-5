@@ -36,6 +36,7 @@ PURE_MODULES = [
     "extras.pgvector_backend.perception",
     "extras.pgvector_backend.recall_pipeline",
     "extras.pgvector_backend.e_axis_scorer",
+    "extras.pgvector_backend.e_axis_trigger",
     "extras.pgvector_backend.embedders",
     "extras.pgvector_backend.rerankers",
     "extras.pgvector_backend.hooks",
@@ -122,6 +123,115 @@ def test_callable_validation_at_init():
     assert nd.write_candidate is None
     rp = RecallPipeline()
     assert rp.vector_search is None
+
+
+def test_e_axis_trigger_rules():
+    """should_score_e_axis: type-based triggers, keyword gating, relation hints."""
+    from extras.pgvector_backend.e_axis_trigger import should_score_e_axis
+    from extras.pgvector_backend.night_dream import Candidate
+
+    # ALWAYS_TRIGGER types fire regardless of content
+    cand = Candidate(type="relationship_moment", title="X", content="neutral text",
+                     importance=8, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert should_score_e_axis(cand)
+
+    cand = Candidate(type="risk_boundary", title="X", content="neutral",
+                     importance=8, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert should_score_e_axis(cand)
+
+    cand = Candidate(type="preference", title="X", content="neutral",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert should_score_e_axis(cand)
+
+    # NEVER_TRIGGER without emotion keywords
+    cand = Candidate(type="fact", title="API config", content="set port to 8080",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert not should_score_e_axis(cand)
+
+    cand = Candidate(type="engineering_decision", title="X", content="use sqlite",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert not should_score_e_axis(cand)
+
+    # NEVER_TRIGGER WITH emotion keyword → still fires
+    cand = Candidate(type="fact", title="X", content="she said 我们 will always work together",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert should_score_e_axis(cand)
+
+    # event with emotional_link hint
+    cand = Candidate(type="event", title="meeting", content="ordinary meeting",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1],
+                     relation_hints=["emotional_link"])
+    assert should_score_e_axis(cand)
+
+    # bare event without triggers → skip
+    cand = Candidate(type="event", title="X", content="ran tests",
+                     importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
+    assert not should_score_e_axis(cand)
+
+
+def test_e_axis_dispatcher_validates_inputs():
+    """EAxisDispatcher: required scorer, callable attach_score, callable gate."""
+    from extras.pgvector_backend.e_axis_trigger import EAxisDispatcher
+
+    class StubScorer:
+        def score(self, title, content, record_id=None):
+            return None
+
+    with pytest.raises(TypeError, match="scorer"):
+        EAxisDispatcher(scorer=None, attach_score=lambda i, s: None)
+
+    with pytest.raises(TypeError, match="attach_score"):
+        EAxisDispatcher(scorer=StubScorer(), attach_score="not callable")
+
+    with pytest.raises(TypeError, match="gate"):
+        EAxisDispatcher(scorer=StubScorer(),
+                        attach_score=lambda i, s: None,
+                        gate="not callable")
+
+    # All-valid construction works
+    d = EAxisDispatcher(scorer=StubScorer(), attach_score=lambda i, s: None)
+    assert d.scorer is not None
+
+
+def test_night_dream_invokes_dispatcher_on_write():
+    """NightDream.run(apply=True) calls dispatcher.maybe_score for every written candidate."""
+    from extras.pgvector_backend.night_dream import NightDream, Candidate, Chunk
+
+    invocations = []
+
+    class StubDispatcher:
+        def maybe_score(self, memory_id, candidate):
+            invocations.append((memory_id, candidate.title))
+            return None
+
+    next_id = [0]
+
+    def write_candidate(cand):
+        next_id[0] += 1
+        return next_id[0]
+
+    def proposer(chunks):
+        return [{
+            "type": "relationship_moment",
+            "title": "first promise",
+            "content": "she said we will always be honest with each other",
+            "importance": 9,
+            "evidence": "we will always",
+            "source_chunk_ids": [1],
+            "risk": "normal",
+            "thread_hint": "线",
+            "relation_hints": ["same_event"],
+        }]
+
+    dream = NightDream(
+        proposer=proposer,
+        write_candidate=write_candidate,
+        e_axis_dispatcher=StubDispatcher(),
+        importance_threshold=5,
+    )
+    res = dream.run([Chunk(id=1, text="x" * 200)], apply=True)
+    assert res.written_ids == [1]
+    assert invocations == [(1, "first promise")]
 
 
 def test_anti_hallucination_header_embedded_everywhere():
