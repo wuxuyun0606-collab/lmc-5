@@ -143,6 +143,9 @@ class EAxisScorer:
         rubric_version: str = "default",
         timeout: int = 60,
         fail_log_path: Optional[Path] = None,
+        max_retries: int = 3,
+        retry_backoff_s: float = 2.0,
+        min_confidence: float = 0.3,
     ):
         """
         Args:
@@ -152,6 +155,11 @@ class EAxisScorer:
             rubric_version: 量规版本号
             timeout: 单次调用超时秒
             fail_log_path: 失败日志路径（None 则不记）
+            max_retries: 单条记忆最多重试几次（含首次）。schema_fail / range_fail
+                         不重试——模型回答结构错的话再调一次只会再错一次。
+            retry_backoff_s: 指数退避基数。第 N 次失败后等 retry_backoff_s ** N 秒
+            min_confidence: 最低可接受 confidence 阈值。模型对这次打分把握不到此值
+                            就当作 schema 失败丢弃（不污染 E 轴）。默认 0.3。
         """
         self.llm_call = llm_call
         self.rubric = rubric
@@ -159,6 +167,9 @@ class EAxisScorer:
         self.rubric_version = rubric_version
         self.timeout = timeout
         self.fail_log_path = fail_log_path
+        self.max_retries = max(1, max_retries)
+        self.retry_backoff_s = max(0.0, retry_backoff_s)
+        self.min_confidence = max(0.0, min(1.0, min_confidence))
 
     def _log_fail(self, record_id: Optional[int], category: str, detail: str = "") -> None:
         if not self.fail_log_path:
@@ -175,36 +186,81 @@ class EAxisScorer:
         body = (content or "")[:2000]
         return f"{self.rubric}\n\n记忆原文：\n{title}\n\n{body}\n\n按 rubric 打分，只输出 JSON。"
 
+    # 可重试 vs 不可重试的失败类型分类
+    # 可重试：网络抖动 / 限流 / 模型偶发空回答 / 偶发非 JSON 输出
+    # 不可重试：模型答了结构错的 JSON——再调只会再错，浪费 token
+    RETRYABLE_FAILS = (
+        FailReason.HTTP_TIMEOUT,
+        FailReason.HTTP_ERROR,
+        FailReason.EMPTY_RESPONSE,
+        FailReason.NO_JSON_IN_TEXT,
+    )
+    # 注意：low_confidence 不在可重试里——模型再答一次只会同样没把握，浪费 token
+
+    def _attempt_score(
+        self,
+        prompt: str,
+        record_id: Optional[int],
+    ) -> tuple[Optional[EAxisScore], Optional[str]]:
+        """单次尝试。返回 (score, fail_category)。
+        score 非 None → 成功；否则 fail_category 指出失败类型供重试判断。
+        """
+        try:
+            raw = self.llm_call(prompt, self.timeout)
+        except TimeoutError:
+            return None, FailReason.HTTP_TIMEOUT
+        except Exception:
+            return None, FailReason.HTTP_ERROR
+        if not raw:
+            return None, FailReason.EMPTY_RESPONSE
+        parsed = _extract_json(raw)
+        if parsed is None:
+            return None, FailReason.NO_JSON_IN_TEXT
+        score, fail = validate(parsed)
+        if not score:
+            # 提取失败类型前缀（"schema_fail: missing ..." → "schema_fail"）
+            cat = (fail or FailReason.PARSE_FAIL).split(":")[0]
+            return None, cat
+        # 最低置信度门槛 — 模型对自己都没把握的分数不接
+        if score.confidence < self.min_confidence:
+            return None, f"low_confidence:{score.confidence:.2f}<{self.min_confidence}"
+        return score, None
+
     def score(
         self,
         title: str,
         content: str,
         record_id: Optional[int] = None,
     ) -> Optional[EAxisScore]:
-        """打分。失败返回 None（不抛异常）"""
+        """打分。失败返回 None（不抛异常）。
+
+        可重试失败（网络/空回答/非 JSON）走指数退避重试，重试到 max_retries 次仍失败才
+        log + return None。不可重试失败（schema_fail/range_fail）立刻 log + return None，
+        不浪费第二次 token。
+        """
+        import time
         prompt = self.build_prompt(title, content)
-        try:
-            raw = self.llm_call(prompt, self.timeout)
-        except TimeoutError:
-            self._log_fail(record_id, FailReason.HTTP_TIMEOUT, f">{self.timeout}s")
-            return None
-        except Exception as e:
-            self._log_fail(record_id, FailReason.HTTP_ERROR, str(e))
-            return None
-        if not raw:
-            self._log_fail(record_id, FailReason.EMPTY_RESPONSE)
-            return None
-        parsed = _extract_json(raw)
-        if parsed is None:
-            self._log_fail(record_id, FailReason.NO_JSON_IN_TEXT, raw[:200])
-            return None
-        score, fail = validate(parsed)
-        if not score:
-            self._log_fail(record_id, fail or FailReason.PARSE_FAIL)
-            return None
-        score.scorer = self.scorer_name
-        score.rubric_version = self.rubric_version
-        return score
+        last_fail: Optional[str] = None
+        for attempt in range(self.max_retries):
+            result, fail_cat = self._attempt_score(prompt, record_id)
+            if result is not None:
+                result.scorer = self.scorer_name
+                result.rubric_version = self.rubric_version
+                return result
+            last_fail = fail_cat
+            # 不可重试的失败立刻终止
+            if fail_cat and not any(fail_cat.startswith(r) for r in self.RETRYABLE_FAILS):
+                self._log_fail(record_id, fail_cat,
+                               f"non-retryable, attempt={attempt + 1}")
+                return None
+            # 还有重试机会就退避
+            if attempt + 1 < self.max_retries:
+                wait = self.retry_backoff_s ** (attempt + 1)
+                time.sleep(wait)
+        # 重试用完
+        self._log_fail(record_id, last_fail or FailReason.PARSE_FAIL,
+                       f"retries_exhausted (n={self.max_retries})")
+        return None
 
 
 # === 给 lmc-5 用户的提醒（写在代码里方便他读 docstring）===
@@ -222,3 +278,33 @@ INTEGRATION_NOTE = """
    tension 高 ≠ 事实失效。response_tendency=withdraw ≠ 不许调用。
    覆盖判定走 Z 轴 z_conflict_audits，E 轴只调注入语气和优先级。
 """
+
+
+# === 影子期 helper（让"E 轴不参与排序"在代码里也成立）===
+
+def is_in_shadow_period(
+    rubric_started_at,
+    shadow_days: int = 30,
+    now=None,
+) -> bool:
+    """判断 E 轴是否仍在影子期（不应参与排序）。
+
+    用法：rerank 路径里 `if is_in_shadow_period(scorer_first_seen_at): ignore_e_axis()`。
+    rubric_started_at 取你部署/换 rubric 的时间。换 rubric 等于影子期重置。
+
+    给排序层一个明确的门，比"靠人记得别用"靠谱得多。
+    """
+    from datetime import datetime, timedelta
+    if rubric_started_at is None:
+        return True  # 没记开始时间默认按影子期处理，保守
+    if not isinstance(rubric_started_at, datetime):
+        try:
+            rubric_started_at = datetime.fromisoformat(str(rubric_started_at))
+        except Exception:
+            return True
+    ref = now or datetime.now()
+    if rubric_started_at.tzinfo is not None:
+        rubric_started_at = rubric_started_at.replace(tzinfo=None)
+    if ref.tzinfo is not None:
+        ref = ref.replace(tzinfo=None)
+    return (ref - rubric_started_at) < timedelta(days=shadow_days)

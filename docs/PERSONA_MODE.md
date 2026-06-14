@@ -68,6 +68,31 @@ Concretely:
 - The judging prompt must distinguish: same-fact overwrite vs tone shift
   vs sarcasm vs historical vs future-only.
 
+**Configuration example.** Schema in
+`extras/pgvector_backend/schema.sql` already defaults audit rows to
+`pending`. The CLI gate looks like:
+
+```bash
+# Cron runs only the judgement pass (writes audit rows, never executes)
+python -m lmc5 z run
+
+# Human approves explicit ids — this is the only path that supersedes
+python -m lmc5 z approve 17 23 41
+
+# Reject anything the judge got wrong — record stays as evidence
+python -m lmc5 z reject 19
+```
+
+```python
+# In code: never call supersede directly. Always go through the audit table.
+conn.execute(
+    "INSERT INTO lmc5_z_audit (pair_key, content_hash, verdict, "
+    "stale_id, current_id, reason, evidence, status) "
+    "VALUES (%s, %s, 'supersede', %s, %s, %s, %s, 'pending')",
+    (pair_key, content_hash, stale_id, current_id, reason, evidence),
+)
+```
+
 ### 3. E-axis shadow period of at least 30 days
 
 When you first wire an LLM-based E-axis scorer, it does **not** participate
@@ -78,6 +103,26 @@ Why: emotional scoring is volatile. Letting an immature scorer drive
 ranking makes the persona oscillate between "today I am cheerful" and
 "today I am withdrawn" in a way that looks like the system has a
 personality disorder, not a personality. Stabilize first, deploy later.
+
+**Configuration example.** `extras/pgvector_backend/e_axis_scorer.py`
+ships a helper so the shadow gate is enforced in code, not in
+discipline:
+
+```python
+from extras.pgvector_backend.e_axis_scorer import is_in_shadow_period
+
+# Record when you first activated this rubric — switching rubric resets the window
+RUBRIC_STARTED_AT = datetime(2026, 6, 14)
+
+def rerank_with_optional_e_axis(records: list[dict]) -> list[dict]:
+    if is_in_shadow_period(RUBRIC_STARTED_AT, shadow_days=30):
+        # E-axis fields are attached but ignored for ranking
+        return rerank_without_e_axis(records)
+    return rerank_using_e_axis(records)
+```
+
+Bump `shadow_days` to 60 or 90 if you change rubric versions often;
+shorten only when you have monitoring on scorer stability.
 
 ### 4. Half-life table with `inf` rows
 
@@ -105,6 +150,21 @@ two months ago is not.
 See `extras/pgvector_backend/ob_recall.py` for the reference
 implementation.
 
+**Configuration example.** Override the table by category — you do not
+need to fork the module:
+
+```python
+from extras.pgvector_backend import ob_recall
+
+# Add a category, override an existing one, mark something protected-by-policy
+ob_recall.CATEGORY_HALF_LIVES["promise"] = float("inf")
+ob_recall.CATEGORY_HALF_LIVES["conversation"] = 7   # tighten if your agent is chatty
+```
+
+The decay formula itself (`compute_decayed_weight`) is shared between
+the write path and the metabolism pass — change the table here and both
+paths agree.
+
 ### 5. Spontaneous recall on a schedule
 
 The persona does not only recall when queried. A scheduled task (a few
@@ -117,6 +177,35 @@ This is what makes a persona feel like it is **thinking about you**
 between sessions, instead of starting fresh every time. The mechanism is
 weighted-random sampling, not magic; the perceived effect is presence.
 
+**Configuration example.** A minimal scheduler entry plus the sampling
+sketch — adapt to your storage:
+
+```cron
+# Three times a day with 5-minute jitter — see DEPLOYMENT.md for systemd timer equivalent
+0 9,15,21 * * *  cd /opt/lmc5-agent && python -m lmc5 spontaneous-recall
+```
+
+```python
+def spontaneous_recall(conn, k: int = 1) -> list[dict]:
+    """Weighted random over high-vitality memories with deliberate drift."""
+    candidates = conn.execute("""
+        SELECT id, title, content, weight, hit_count, arousal, valence,
+               category, source, created_at, last_hit
+        FROM lmc5_curated_memories
+        WHERE version_status = 'current' AND resolved = false
+        ORDER BY created_at DESC
+        LIMIT 500
+    """).fetchall()
+    scored = [(c, ob_recall.ob_score(dict(c))) for c in candidates]
+    # 60% high-vitality, 40% random drift — drift is the "presence" knob
+    import random
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top = [c for c, _ in scored[: int(len(scored) * 0.4)]]
+    drift = random.sample(candidates, min(len(candidates), 50))
+    pool = top + drift
+    return random.sample(pool, min(k, len(pool)))
+```
+
 ### 6. Relationship moments are `protected`
 
 First meaningful turning points, named promises, the first time the user
@@ -126,6 +215,29 @@ not eligible for deduplication and not eligible for supersede.
 
 The rule: a persona can gain new memories about the user, but it cannot
 rewrite a moment that already happened between them.
+
+**Configuration example.** Mark on insert; the dedup pass and the
+Z-axis judgement both honor `protected`:
+
+```sql
+INSERT INTO lmc5_curated_memories
+  (source, category, title, content, protected, weight, arousal)
+VALUES
+  ('manual', 'relationship_moment',
+   'first time the agent was called by a private name',
+   '... evidence ...',
+   true, 2.4, 0.7);
+```
+
+```python
+# Dedup pass: never collapse protected rows
+def safe_to_dedup(row: dict) -> bool:
+    return not row.get("protected") and row.get("category") != "relationship_moment"
+```
+
+The cost of accidentally deduping a relationship moment is much higher
+than carrying one extra near-duplicate row forever. Default to the
+duplicate.
 
 ## What Persona Mode Is Not
 
