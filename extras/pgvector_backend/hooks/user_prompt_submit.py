@@ -150,8 +150,9 @@ def build_pipeline_from_env():
     return rp_module.RecallPipeline(
         vector_search=vector_search,
         fts_search=rp_module.fts_search_adapter(pg),
-        graph_expand=None,          # 部署方接入；见 docs/HOOKS_AND_RECALL.md
-        emotion_resonate=None,      # 部署方接入；见 docs/HOOKS_AND_RECALL.md
+        raw_events_search=rp_module.raw_events_search_adapter(pg),
+        graph_expand=rp_module.graph_expand_adapter(pg),
+        emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,
         rerank=rerank,
     )
