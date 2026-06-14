@@ -3,6 +3,48 @@
 > Production-grade ANN reference for LMC-5.
 > Opt-in. Does not change the offline-first SQLite default.
 
+## Alpha Status (read this first)
+
+This subpackage is **alpha**. Architecture is in place; some integration
+plumbing is reference-only and needs deployment-specific wiring.
+
+**What works end-to-end:**
+
+- `vector_pgvector.PgvectorStore` — schema, write, search, find_duplicates
+- `night_dream.NightDream` — proposer → gate → write → relation expansion → semantic dedup
+- `narrative_timeline.NarrativeTimeline` — weekly / monthly reflection
+- `ob_recall.ob_score` + decay formula + time ripple + Russell distance
+- `e_axis_scorer.EAxisScorer` — retry + min_confidence gate + shadow-period helper
+- `perception.Perception` — spontaneous-recall scheduler + JSON cache
+- `recall_pipeline.RecallPipeline` — multi-channel parallel merge
+- `config.LMC5Config` — every knob in one dataclass, env-var loadable
+- `schema.sql` — full DDL for every table referenced anywhere in the codebase
+- `embedders.py` — Gemini / Voyage / OpenAI / local BGE-M3 adapters with auto-pick
+- `rerankers.py` — DeepSeek / OpenAI / Voyage rerank adapters with auto-pick
+- `hooks/{session_start,user_prompt_submit,session_end}.py` — Claude Code hook entrypoints
+
+**What is deployment-specific (the hook auto-builder leaves these `None`):**
+
+- `graph_expand` — needs your relation schema's exact SQL for 2-hop expansion
+- `emotion_resonate` — needs your candidate-pool SQL for Russell distance
+
+Both are documented in `docs/HOOKS_AND_RECALL.md`. They are intentionally
+left as `None` rather than guessing — wiring them with the wrong schema
+silently returns garbage; leaving them off is safer.
+
+**Not yet covered:**
+
+- End-to-end integration tests against a real PostgreSQL instance
+- Performance benchmarks (latency, recall@K, embedding cost per turn)
+- Automated embedder migration (3072d → 1024d) — see `docs/VECTOR_BACKENDS.md`
+  for the manual procedure
+
+**Recommended posture:** treat this as a working starting point for
+building an LMC-5-backed agent. Read the docstrings, wire your storage,
+and expect to write integration tests against your own schema before
+trusting it with anything you cannot afford to lose. File issues for
+sharp edges you hit.
+
 The core `src/lmc5/vector.py` uses SQLite + JSON + Python cosine — fine for
 demos and small corpora, slow once you cross a few thousand vectors.
 

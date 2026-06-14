@@ -82,27 +82,60 @@ def detect_user_emotion(text: str) -> tuple[float, float] | None:
 
 def build_pipeline_from_env():
     """从环境变量构造 RecallPipeline。
-    实际部署时替换为你自己的依赖装配——这里展示最小可跑形态。
+
+    自动按存在的环境变量装配通道：
+      - GEMINI/VOYAGE/OPENAI key → 向量通道接 PgvectorStore + embedder
+      - 永远开启 FTS 兜底
+      - DEEPSEEK/OPENAI key 或 VOYAGE rerank → rerank 通道
+      - 永远读 perception cache 作为自发浮现通道
+      - graph_expand 默认 None（需要部署方按自家 schema 写 SQL，参考 docs/HOOKS_AND_RECALL.md）
+      - emotion_resonate 默认 None（需要部署方提供候选池 SQL）
     """
+    import logging
+    log = logging.getLogger("lmc5.hooks.user_prompt_submit")
+
     from .. import recall_pipeline as rp_module
     from .. import perception as perception_module
     from .. import vector_pgvector
+    from .. import embedders as emb_module
+    from .. import rerankers as rerank_module
     import psycopg2
 
     dsn = os.environ["LMC5_PG_DSN"]
     pg = psycopg2.connect(dsn)
-    store = vector_pgvector.PgvectorStore(
-        dsn=dsn,
-        embedder=None,           # 调用方注入 embedding callable
+
+    # 向量通道——有 embedder 才接，没有就明确 log
+    embedder = emb_module.get_embedder()
+    vector_search = None
+    if embedder is not None:
+        try:
+            store = vector_pgvector.PgvectorStore(dsn=dsn, embedder=embedder)
+            vector_search = rp_module.vector_search_adapter(store, embedder)
+            log.info("vector channel: enabled (embedder=%s)", type(embedder).__name__)
+        except Exception as e:
+            log.warning("vector channel: PgvectorStore init failed, disabling: %s", e)
+    else:
+        log.warning(
+            "vector channel: DISABLED — no GEMINI/VOYAGE/OPENAI key found "
+            "and no local sentence-transformers fallback. Set one in .env "
+            "(see extras/pgvector_backend/.env.example)"
+        )
+
+    # rerank——有 key 就接
+    rerank = rerank_module.get_reranker()
+    if rerank is not None:
+        log.info("rerank channel: enabled")
+    else:
+        log.info("rerank channel: disabled (no DEEPSEEK/OPENAI/VOYAGE key); "
+                 "falling back to score sort")
+
+    # 自发浮现——读 cache
+    cache_path = __import__("pathlib").Path(
+        os.environ.get("LMC5_PERCEPTION_CACHE", "/tmp/lmc5_perception.json")
     )
 
-    # 这里只演示装配；实际 embedder / fts / graph 由调用方接
-    return rp_module.RecallPipeline(
-        vector_search=None,      # rp_module.vector_search_adapter(store, embedder)
-        fts_search=rp_module.fts_search_adapter(pg),
-        graph_expand=None,
-        emotion_resonate=None,
-        spontaneous=lambda k: [
+    def spontaneous(k: int) -> list:
+        return [
             rp_module.RecallHit(
                 source_id=int(p["source_id"]),
                 title=p.get("title", ""),
@@ -111,13 +144,16 @@ def build_pipeline_from_env():
                 channel="perception",
                 metadata={"selected_via": p.get("selected_via", "")},
             )
-            for p in perception_module.load_perception_cache(
-                __import__("pathlib").Path(
-                    os.environ.get("LMC5_PERCEPTION_CACHE", "/tmp/lmc5_perception.json")
-                )
-            )[:k]
-        ],
-        rerank=None,
+            for p in perception_module.load_perception_cache(cache_path)[:k]
+        ]
+
+    return rp_module.RecallPipeline(
+        vector_search=vector_search,
+        fts_search=rp_module.fts_search_adapter(pg),
+        graph_expand=None,          # 部署方接入；见 docs/HOOKS_AND_RECALL.md
+        emotion_resonate=None,      # 部署方接入；见 docs/HOOKS_AND_RECALL.md
+        spontaneous=spontaneous,
+        rerank=rerank,
     )
 
 
