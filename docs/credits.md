@@ -33,6 +33,12 @@ LMC-5 also credits these design influences:
 - LMC-5 describes breath, chunks, chord emotion, forge, and swap as
   deployment/design patterns, not hidden hosted services in the core package.
 
+## XYZEM Origin
+
+The XYZEM five-axis model (Timeline, Relations, Fact Evolution, Experience, Metabolism) emerged from long-term engineering practice on a private AI-companion memory system that ran for over half a year before this open-source extraction. Reference patterns for a production-grade vector backend, LLM-based dreaming, narrative timeline reflection, and OB-style recall ranking are documented in `extras/pgvector_backend/` and `docs/PERSONA_MODE.md`.
+
+This open-source release deliberately strips the private-companion specifics. What is kept is the engineering shape; what is left out is the relationship that produced it.
+
 ## Why Attribution Is Explicit
 
 Renaming files to hide influence is not engineering. It is plagiarism wearing a
