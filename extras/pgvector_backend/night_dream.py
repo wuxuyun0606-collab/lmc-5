@@ -74,6 +74,59 @@ SENSITIVE_PATTERNS = [
 ]
 
 
+DEFAULT_HIPPOCAMPUS_PROMPT = None  # 延迟构造，避免 import 循环
+
+
+def make_hippocampus_prompt(chunks: list) -> str:
+    """提供给 LLM proposer 用的标准 prompt 模板。
+
+    嵌入反幻觉铁律 + hippocampus 特定提醒，强制要求 evidence 字段从原文一字不差引用。
+    用户写自己的 proposer 时直接调这个函数即可。
+    """
+    from .anti_hallucination import (
+        ANTI_HALLUCINATION_HEADER,
+        HIPPOCAMPUS_TASK_REMINDERS,
+    )
+
+    items = []
+    for c in chunks:
+        items.append(
+            f"[chunk_id={c.id} session={c.session_id} "
+            f"time={c.start_time}..{c.end_time}]\n"
+            f"summary: {c.summary[:700]}\n"
+            f"keywords: {c.keywords[:240]}\n"
+            f"content: {c.text[:900]}"
+        )
+    items_text = "\n\n".join(items)
+
+    return ANTI_HALLUCINATION_HEADER + HIPPOCAMPUS_TASK_REMINDERS + f"""
+
+任务：从以下 conversation chunks 里筛出值得长期记住的候选记忆。
+
+只能输出 JSON，不要解释。格式：
+{{
+  "candidates": [
+    {{
+      "type": "event|fact|preference|engineering_decision|relationship_moment|risk_boundary",
+      "title": "20字以内标题",
+      "content": "一段可落库的记忆——不脑补、不情绪加工、只记原文里发生过的事",
+      "importance": 1到10整数,
+      "thread_hint": "事业线|恋爱线|人际线|日常线|其他线",
+      "relation_hints": ["same_event"|"same_topic"|"temporal_sequence"|"derived_from"],
+      "source_chunk_ids": [数字 chunk_id],
+      "evidence": "从原文一字不差引用的一句短证据，不超过80字，引用不出来这条作废",
+      "risk": "normal|review"
+    }}
+  ]
+}}
+
+如果没有值得记的内容，返回 {{"candidates":[]}}——这是**合法输出**，不是失败。
+
+chunks:
+{items_text}
+"""
+
+
 @dataclass
 class Chunk:
     """对齐 lmc-5 的 event chunk 概念"""

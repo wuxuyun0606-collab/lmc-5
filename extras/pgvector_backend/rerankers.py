@@ -48,12 +48,19 @@ def llm_listwise_reranker(
         for i, h in enumerate(hits):
             items.append(f"[{i}] id={h.source_id} score={h.score:.2f} "
                          f"title={(h.title or '')[:50]} :: {h.content[:200]}")
+        from .anti_hallucination import (
+            ANTI_HALLUCINATION_HEADER,
+            RERANK_TASK_REMINDERS,
+        )
         prompt = (
-            "You are reranking memory recall hits for an AI agent.\n"
-            f"User message: {query[:500]}\n\n"
-            "Candidates:\n" + "\n".join(items) + "\n\n"
-            f"Return the top {top_k} most relevant indices as a JSON array, "
-            f"e.g. [3, 0, 7]. Only JSON, no commentary."
+            ANTI_HALLUCINATION_HEADER
+            + RERANK_TASK_REMINDERS
+            + "\n你在为一个 AI agent 给记忆召回结果做重排。\n"
+            + f"用户消息: {query[:500]}\n\n"
+            + "候选:\n" + "\n".join(items) + "\n\n"
+            + f"返回最相关的前 {top_k} 条 index，纯 JSON 整数数组，"
+            + f"例如 [3, 0, 7]。不要附加解释，不要修改候选内容，"
+            + f"不要因为某条'看起来更深刻'就抬高——只看与用户消息的相关度。"
         )
         try:
             resp = requests.post(

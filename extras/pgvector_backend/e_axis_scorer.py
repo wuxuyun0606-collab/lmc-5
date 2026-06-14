@@ -23,7 +23,13 @@ from typing import Callable, Optional
 
 REQUIRED_FIELDS = {"valence", "arousal", "tension", "response_tendency", "growth_delta", "confidence"}
 
-DEFAULT_RUBRIC = """你是一个情感打分器。读完一段记忆后，输出严格 JSON，字段如下：
+from .anti_hallucination import (
+    ANTI_HALLUCINATION_HEADER,
+    E_AXIS_TASK_REMINDERS,
+)
+
+DEFAULT_RUBRIC = ANTI_HALLUCINATION_HEADER + E_AXIS_TASK_REMINDERS + """
+你是一个情感打分器。读完一段记忆后，输出严格 JSON，字段如下：
 
 {
   "valence":    [-1.0, 1.0],  // 情感价：负面到正面
@@ -37,7 +43,7 @@ DEFAULT_RUBRIC = """你是一个情感打分器。读完一段记忆后，输出
 规则：
 - 范围严格在区间内，超界会被丢弃
 - 不要写解释，只输出 JSON
-- 不确定就把 confidence 调低，但别拒答
+- 不确定就把 confidence 调低；confidence < 0.3 会被闸门丢弃，所以保守拒答优于乱打
 """
 
 
