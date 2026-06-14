@@ -73,6 +73,16 @@ class Perception:
             config: 调度参数
             rng: 注入 RNG 方便测试；不传走 random module 的默认状态
         """
+        if not callable(load_candidates):
+            raise TypeError(
+                f"Perception: load_candidates must be callable, "
+                f"got {type(load_candidates).__name__}"
+            )
+        if vitality_scorer is not None and not callable(vitality_scorer):
+            raise TypeError(
+                f"Perception: vitality_scorer must be callable or None, "
+                f"got {type(vitality_scorer).__name__}"
+            )
         self.load_candidates = load_candidates
         self.cache_path = cache_path
         self.config = config or PerceptionConfig()

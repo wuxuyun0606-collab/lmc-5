@@ -161,6 +161,10 @@ class EAxisScorer:
             min_confidence: 最低可接受 confidence 阈值。模型对这次打分把握不到此值
                             就当作 schema 失败丢弃（不污染 E 轴）。默认 0.3。
         """
+        if not callable(llm_call):
+            raise TypeError(
+                f"EAxisScorer: llm_call must be callable, got {type(llm_call).__name__}"
+            )
         self.llm_call = llm_call
         self.rubric = rubric
         self.scorer_name = scorer_name

@@ -229,6 +229,19 @@ class NightDream:
             logger: 自带 logger。不传走 logging.getLogger("lmc5.night_dream")
         """
         import logging
+        for name, fn in (
+            ("proposer", proposer),
+            ("write_candidate", write_candidate),
+            ("write_safe_relation", write_safe_relation),
+            ("queue_review_relation", queue_review_relation),
+            ("find_neighbors", find_neighbors),
+            ("find_semantic_duplicates", find_semantic_duplicates),
+        ):
+            if fn is not None and not callable(fn):
+                raise TypeError(
+                    f"NightDream: {name} must be callable or None, "
+                    f"got {type(fn).__name__}"
+                )
         self.proposer = proposer or deterministic_proposer
         self.write_candidate = write_candidate
         self.write_safe_relation = write_safe_relation

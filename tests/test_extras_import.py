@@ -90,3 +90,34 @@ def test_perception_config_shape():
     from extras.pgvector_backend.perception import PerceptionConfig
     cfg = PerceptionConfig()
     assert 0.95 <= cfg.high_vitality_ratio + cfg.drift_ratio <= 1.05
+
+
+def test_callable_validation_at_init():
+    """Construction-time TypeError for non-callable injected dependencies.
+    Catches mistakes at __init__ instead of at 3 a.m. inside a cron job.
+    """
+    from extras.pgvector_backend.night_dream import NightDream
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline
+    from extras.pgvector_backend.perception import Perception
+    from extras.pgvector_backend.e_axis_scorer import EAxisScorer
+
+    with pytest.raises(TypeError, match="proposer"):
+        NightDream(proposer="not a function")
+
+    with pytest.raises(TypeError, match="write_candidate"):
+        NightDream(write_candidate=[1, 2, 3])
+
+    with pytest.raises(TypeError, match="vector_search"):
+        RecallPipeline(vector_search="not a function")
+
+    with pytest.raises(TypeError, match="load_candidates"):
+        Perception(load_candidates="not callable")
+
+    with pytest.raises(TypeError, match="llm_call"):
+        EAxisScorer(llm_call="not callable")
+
+    # Sanity: None values are accepted everywhere they're optional
+    nd = NightDream()                       # all-None construction is valid
+    assert nd.write_candidate is None
+    rp = RecallPipeline()
+    assert rp.vector_search is None
