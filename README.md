@@ -29,6 +29,36 @@ It is meant for Claude Code, Codex-style coding agents, personal assistant
 agents, local CLI workflows, and other long-running LLM tools that need memory
 without hard-binding themselves to one model provider.
 
+## Two reference implementations
+
+LMC-5 ships **two** reference implementations of the same XYZEM model,
+matched to different deployment shapes:
+
+| | Minimal (`src/lmc5/`) | Production (`extras/pgvector_backend/`) |
+|---|---|---|
+| Storage | SQLite, zero deps | PostgreSQL + pgvector halfvec + ivfflat ANN |
+| Recall | FTS5 lexical + portable cosine | 5-channel parallel: vector / FTS fallback / Y-axis graph 2-hop / Russell emotion / spontaneous |
+| Hippocampus | Deterministic chunking | LLM-proposed candidates + safety gates + semantic dedup |
+| Reflection | — | Weekly / monthly narrative timeline |
+| E axis | Field placeholders | Provider-agnostic LLM scorer with retry + min-confidence + shadow-period helper |
+| Hooks | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` for Claude Code |
+| Operations | — | Forge (session continuity) + Swap (snapshot rollback) reference patterns |
+| Best for | Prototypes, demos, <5k vectors, offline | VPS 7×24 deployments, persona-class agents, multi-month continuity |
+
+The minimal impl `pip install -e .` and runs `python examples/demo.py`.
+The production impl needs a PostgreSQL instance and at least one
+embedder API key — see [extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
+and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example).
+
+> The next sections describe the minimal impl in detail. For the
+> production impl, the entry points are
+> [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) (the pipeline),
+> [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md) (six policy switches),
+> [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md) (backend + embedder choices),
+> [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (VPS shape + cron/systemd),
+> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md) (session continuity + rollback), and
+> [docs/DEEPSEEK_INTEGRATION.md](docs/DEEPSEEK_INTEGRATION.md) (housekeeper LLM role).
+
 ## The Model
 
 **Living Memory Coordinate-5**, or **LMC-5**, treats memory as five cooperating
@@ -460,25 +490,50 @@ The reference implementation favors boring operational properties:
 ## Repository Layout
 
 ```text
-.github/workflows/
-  ci.yml          # test matrix
-src/lmc5/
-  cli.py          # command-line interface
-  models.py       # dataclasses and enums
-  redact.py       # output and embedding-input redaction
-  scoring.py      # explainable priority scoring
-  store.py        # SQLite persistence
-  metabolism.py   # read-only lifecycle suggestions
-  consolidation.py # raw event chunking into reviewable observations
-  hippocampus.py  # gated chunk-to-memory promotion
+.github/workflows/ci.yml             # test matrix
+
+src/lmc5/                            # MINIMAL reference impl — SQLite, offline
+  cli.py / store.py / vector.py
+  models.py / redact.py / scoring.py
+  consolidation.py / hippocampus.py / fact_evolution.py / metabolism.py
+
+extras/pgvector_backend/             # PRODUCTION reference impl — PG + ANN + LLM
+  config.py                          # LMC5Config — every knob in one dataclass
+  schema.sql                         # full DDL for every table referenced
+  .env.example                       # PG / embedder / LLM / frontend / ops template
+  vector_pgvector.py                 # pgvector + halfvec + ivfflat ANN
+  night_dream.py                     # LLM-proposed hippocampus + safety gates + semantic dedup
+  narrative_timeline.py              # weekly / monthly reflection
+  ob_recall.py                       # OB-style scoring + half-life table + time ripple
+  e_axis_scorer.py                   # provider-agnostic emotional scorer
+  perception.py                      # spontaneous-recall scheduler
+  recall_pipeline.py                 # 5-channel parallel recall
+  embedders.py                       # Gemini / Voyage / OpenAI / local BGE-M3 adapters
+  rerankers.py                       # DeepSeek / OpenAI / Voyage rerank-2 adapters
+  hooks/                             # Claude Code hook entrypoints
+    session_start.py                 #   boot-time startup pack injection
+    user_prompt_submit.py            #   per-turn multi-channel recall injection
+    session_end.py                   #   raw JSONL archival
+
 docs/
-  architecture.md
-  credits.md
-  safety.md
+  architecture.md                    # core XYZEM architecture
+  xyzem_consolidation.md             # how chunks become curated memories
+  PERSONA_MODE.md                    # six policy switches for AI companion deployments
+  DEEPSEEK_INTEGRATION.md            # housekeeper LLM role across all axes
+  VECTOR_BACKENDS.md                 # SQLite vs pgvector + embedder choices
+  DEPLOYMENT.md                      # VPS 7×24 shape + cron/systemd schedules
+  FORGE_AND_SWAP.md                  # session continuity + snapshot rollback
+  HOOKS_AND_RECALL.md                # complete pipeline from store to conversation
+  credits.md / safety.md / project_hypothesis.md / why_openai.md / claude_code.md
+
 examples/
-  seed.jsonl
-  demo.py
+  seed.jsonl / demo.py
+
 tests/
+  test_consolidation.py / test_events.py / test_fact_evolution.py
+  test_hippocampus.py / test_metabolism.py / test_redact.py
+  test_store.py / test_vectors.py
+  test_extras_import.py              # smoke tests for production impl
 ```
 
 ## What LMC-5 Adds Over Plain RAG
