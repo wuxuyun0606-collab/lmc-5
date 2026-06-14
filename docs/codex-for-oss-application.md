@@ -1,16 +1,20 @@
-# Codex for OSS Application Notes
+# OpenAI Open-Source Application Notes
 
-Use this as source material for an application. Replace bracketed placeholders
-with the real GitHub repository URL, maintainer identity, OpenAI organization
-ID, and account details before submitting.
+Source material for an application to the OpenAI open-source / free-Pro
+program. Replace bracketed placeholders with the real maintainer identity
+and OpenAI organization ID before submitting.
 
 ## Project Name
 
-LMC-5
+**Living Memory Coordinate-5** (LMC-5)
 
 ## Repository
 
-`[public GitHub repository URL after publishing]`
+<https://github.com/wuxuyun0606-collab/lmc-5>
+
+## License
+
+MIT
 
 ## Maintainer Role
 
@@ -18,33 +22,65 @@ LMC-5
 
 ## Project Description
 
-LMC-5 is a small open-source reference implementation of a long-memory
-coordination model for AI agents. It organizes memory into five layers:
-timeline, relation graph, fact evolution, experience signals, and metabolism.
-The goal is to help agents keep durable working memory without treating old
-snippets as always-current truth.
+LMC-5 is an open-source memory architecture for long-running LLM agents.
+It organizes memory into five cooperating axes — Timeline (X), Relations
+(Y), Fact Evolution (Z), Experience Signals (E), and Metabolism (M) —
+plus a raw event journal beneath them. The model treats memory as a
+**lifecycle**: events become chunks, chunks become reviewable
+candidates, candidates become curated memories, curated memories decay,
+get superseded, or get consolidated into narrative.
 
-The initial implementation is an offline-first Python package with SQLite
-storage, FTS5 text recall, two-hop typed relation-expanded recall, a raw event
-journal, mixed surfacing across curated memories and raw events, a CLI,
-redaction helpers, JSONL import/export, fact-key supersession, relation
-storage, explainable scoring, a demo workflow, tests, CI, and read-only
-lifecycle patrol checks. It is intentionally conservative: no network calls, no
-hidden model provider, no example credentials, no automatic deletion, and no
-automatic lifecycle mutation from patrol checks.
+The repository ships **two reference implementations** of the same
+model:
 
-The current design is also shaped for a small VPS: append-only event capture can
-run 7*24 hours, while scheduled consolidation, hippocampus dry-runs, and
-read-only patrol checks maintain memory continuity across sleeping or restarted
-agent windows. This makes LMC-5 a survivable memory layer, not just a local demo.
+- **Minimal (`src/lmc5/`)** — Offline-first Python with SQLite + FTS5,
+  deterministic chunking, lightweight cosine vector index, two-hop
+  typed relation expansion, JSONL import/export, redaction helpers,
+  CLI, read-only metabolism patrol, full test suite, CI. Provider-free
+  and network-free in the core. Suitable for prototypes, teaching, and
+  agents under ~5k vectors.
 
-Z-axis conflict handling now follows the same conservative shape: dry-run first,
-provider-free by default, pending audit rows on explicit apply, and no automatic
-supersession from contradiction candidates.
+- **Production (`extras/pgvector_backend/`)** — PostgreSQL + pgvector
+  (halfvec, ivfflat ANN), LLM-proposed hippocampus with safety gates
+  and semantic dedup, weekly/monthly narrative reflection, OB-style
+  recall scoring with category half-lives and time ripple,
+  provider-agnostic E-axis emotional scorer with retry and shadow-period
+  policy, spontaneous-recall scheduler with time-of-day shaping,
+  five-channel parallel recall pipeline (vector + FTS fallback + Y-axis
+  graph 2-hop + Russell emotional resonance + spontaneous), Claude Code
+  hook entrypoints (SessionStart / UserPromptSubmit / SessionEnd),
+  full DDL, environment template, and pluggable embedder / reranker
+  adapters for Gemini, Voyage AI, OpenAI, DeepSeek, and local
+  sentence-transformers.
 
-The VPS deployment model includes a forge pattern for renewing sessions from
-durable memory and a swap pattern for snapshot-based rollback before scheduled
-writes or model-assisted maintenance.
+Both impls share the same XYZEM coordinate model so projects can start
+with the minimal impl, validate the design, and adopt the production
+impl when corpus size, multi-user concurrency, or VPS 7×24 deployment
+requires it.
+
+Operational patterns documented in the repository:
+
+- **Persona Mode** (`docs/PERSONA_MODE.md`) — six policy switches for
+  using LMC-5 as the foundation of a long-living AI companion
+  (identity protected, Z manual gate, E shadow period, category
+  half-lives, spontaneous recall, relationship moments protected).
+- **Forge** (`docs/FORGE_AND_SWAP.md`) — recoverable session continuity
+  when the application LLM hits its context window or quota ceiling.
+- **Swap** (`docs/FORGE_AND_SWAP.md`) — snapshot-based rollback around
+  bulk-mutation passes so a bad housekeeper run is reversible.
+- **VPS 7×24 deployment** (`docs/DEPLOYMENT.md`) — cron / systemd timer
+  examples for nightly consolidation, weekly narrative reflection, and
+  three documented frontend patterns (Telegram, WeChat bot,
+  self-hosted UI).
+- **Housekeeper LLM separation** (`docs/DEEPSEEK_INTEGRATION.md`) — the
+  application LLM stays user-facing while a cheap structured-output
+  model grooms memory on a schedule.
+
+Conservative defaults across the board: no automatic supersession from
+contradictions (pending audit rows only), no automatic deletion from
+metabolism patrols, dry-run before apply, construction-time validation
+of injected callables, categorized failure logs with retry on retryable
+failures only.
 
 ## Why It Matters
 
@@ -69,14 +105,34 @@ benchmarking, stale-context tests, and provider-neutral adapter experiments.
 
 ## API Credits Use
 
-API credits would be used to evaluate and improve optional model-assisted
-memory operations around the offline core:
+API credits would be used to evaluate and improve the production
+reference implementation, while keeping the minimal impl fully offline:
 
-- Generate candidate fact keys from session notes.
-- Propose relation edges between memories.
-- Summarize raw notes into redacted memory records.
-- Compare recall quality across plain retrieval and LMC-5 coordinate-aware retrieval.
-- Build small benchmark fixtures for long-running coding-agent workflows.
+- **Housekeeper LLM evaluation.** Compare DeepSeek, GPT-4o-mini, and
+  Anthropic Haiku on the structured-output tasks that LMC-5 routes
+  through the `housekeeper` role: candidate-proposing hippocampus,
+  Z-axis contradiction judgment, relation labeling, dedup decisions,
+  emotional scoring, narrative reflection.
+- **Recall quality benchmarks.** Compare plain RAG, vector-only recall,
+  and the five-channel LMC-5 pipeline (vector + FTS fallback + Y-axis
+  graph expansion + emotional resonance + spontaneous) across
+  long-running coding-agent and persona-agent benchmark fixtures.
+- **Stale-context evaluation.** Test how each model performs on
+  contradiction discrimination — the failure mode that motivated
+  Z-axis manual gating (the prior deployment hit a 67% false-positive
+  rate with a naive three-line rule before the rubric was expanded).
+- **Embedder migration validation.** Compare Gemini-embedding-2,
+  Voyage-3-large, OpenAI text-embedding-3, and local BGE-M3 on the
+  same corpus using the production recall pipeline.
+- **Persona-mode stability.** Run shadow-period stability tracking on
+  the E-axis scorer across model providers to validate the 30-day
+  minimum.
+- **Documentation and reproducibility fixtures.** Generate benchmark
+  scripts and result tables that other open-source memory projects
+  can reuse.
 
-The core package will remain usable without API calls. Model calls would be
-optional experiments around extraction, evaluation, and documentation.
+The core minimal impl in `src/lmc5/` will remain usable without any
+API calls. Model calls and credits would be used to evaluate, validate,
+and document the production impl in `extras/pgvector_backend/` — the
+parts that benefit from being measured against real production-class
+LLMs.
