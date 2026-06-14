@@ -192,7 +192,11 @@ def normalize_candidate(raw: dict[str, Any]) -> Optional[Candidate]:
 
 
 class NightDream:
-    """晚间做梦 · 端到端"""
+    """晚间做梦 · 端到端
+
+    设计：所有可调参数集中在构造函数；所有静默失败都走 logger 上报；
+    所有依赖的 callable 在调用前显式判 None 给清楚的错误信息。
+    """
 
     def __init__(
         self,
@@ -204,6 +208,7 @@ class NightDream:
         importance_threshold: int = 7,
         max_promote: int = 10,
         relation_top_k: int = 5,
+        logger: Optional["logging.Logger"] = None,
     ):
         """
         Args:
@@ -213,9 +218,12 @@ class NightDream:
             queue_review_relation: (id_a, id_b, type, reason) → 入审计
             find_neighbors: (new_id, top_k) → 候选邻居 id（用于关系扩展）
             importance_threshold: 闸门阈值，低于这个不晋升
-            max_promote: 单次最多晋升几条
+            max_promote: 单次最多晋升几条。超过的进 rejected[reason='exceeds_max_promote']，
+                         不再静默 drop——长期跑会丢数据是 bug，是 feature 也要 log
             relation_top_k: 每个新记忆扩 top-K 邻居建关系
+            logger: 自带 logger。不传走 logging.getLogger("lmc5.night_dream")
         """
+        import logging
         self.proposer = proposer or deterministic_proposer
         self.write_candidate = write_candidate
         self.write_safe_relation = write_safe_relation
@@ -224,22 +232,42 @@ class NightDream:
         self.importance_threshold = importance_threshold
         self.max_promote = max_promote
         self.relation_top_k = relation_top_k
+        self.log = logger or logging.getLogger("lmc5.night_dream")
 
-    def extract(self, chunks: list[Chunk]) -> list[Candidate]:
+    def extract(self, chunks: list[Chunk]) -> tuple[list[Candidate], int]:
+        """提取候选。返回 (candidates, proposer_errors_count)。
+        proposer 报错不再吞掉——log + 返回错误计数，调用方能在 DreamResult 看到。
+        """
         clean_chunks = [c for c in chunks if not is_noise(c.text)]
         if not clean_chunks:
-            return []
-        raw = self.proposer(clean_chunks)
+            return [], 0
+        try:
+            raw = self.proposer(clean_chunks)
+        except Exception as e:
+            self.log.error("night_dream.extract: proposer raised %s: %s",
+                           type(e).__name__, e, exc_info=True)
+            return [], 1
         out: list[Candidate] = []
+        skipped = 0
         for r in raw:
-            if isinstance(r, dict):
-                cand = normalize_candidate(r)
-                if cand:
-                    out.append(cand)
-        return out
+            if not isinstance(r, dict):
+                skipped += 1
+                continue
+            cand = normalize_candidate(r)
+            if cand:
+                out.append(cand)
+            else:
+                skipped += 1
+        if skipped:
+            self.log.info("night_dream.extract: %d raw candidates skipped at normalize", skipped)
+        return out, 0
 
     def gate(self, candidates: list[Candidate]) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
-        """闸门链：阈值 → risk → 必须有 source → 批内去重"""
+        """闸门链：阈值 → risk → 必须有 source → 批内去重 → max_promote 截断
+
+        超过 max_promote 的候选不再静默 drop，进 rejected[reason='exceeds_max_promote']。
+        长期跑里这条是关键——丢数据要可见。
+        """
         promoted: list[Candidate] = []
         rejected: list[tuple[Candidate, str]] = []
         seen: set[tuple[str, str]] = set()
@@ -258,47 +286,107 @@ class NightDream:
                 rejected.append((cand, "duplicate_in_batch"))
                 continue
             seen.add(sig)
-            promoted.append(cand)
             if len(promoted) >= self.max_promote:
-                break
+                rejected.append((cand, "exceeds_max_promote"))
+                continue
+            promoted.append(cand)
+        if any(r == "exceeds_max_promote" for _, r in rejected):
+            n_dropped = sum(1 for _, r in rejected if r == "exceeds_max_promote")
+            self.log.warning(
+                "night_dream.gate: %d candidates dropped at max_promote=%d boundary "
+                "(raise max_promote or lower importance_threshold if this happens often)",
+                n_dropped, self.max_promote,
+            )
         return promoted, rejected
 
-    def build_relations(self, new_ids: list[int]) -> tuple[int, int]:
-        """给新记忆扩 top-K 邻居 → safe 自动写 / review 入审计
+    def build_relations(
+        self,
+        promoted_pairs: list[tuple[int, Candidate]],
+    ) -> tuple[int, int]:
+        """新记忆扩 top-K 邻居 → 按 candidate.relation_hints 决定关系类型
 
-        关系类型从 candidate.relation_hints 来；这里只判 safe vs review。
-        实际类型决策（contradiction？supports？）属于 Z 线，不归 dream。
+        relation_hints 用法：
+        - 第一个落在 SAFE_RELATION_TYPES 的 hint → 主关系类型（写 safe 边）
+        - 任何落在 REVIEW_RELATION_TYPES 的 hint → 入审计队列（不直接写）
+        - 没有任何合规 hint → fallback 到 same_topic
         """
-        if not new_ids or not self.find_neighbors:
+        if not promoted_pairs:
             return (0, 0)
+        if self.find_neighbors is None:
+            self.log.info("night_dream.build_relations: find_neighbors not configured; skipping")
+            return (0, 0)
+
         safe_count = 0
         review_count = 0
-        pairs: set[tuple[int, int]] = set()
-        for cid in new_ids:
-            for nid in self.find_neighbors(cid, self.relation_top_k):
+        seen_pairs: set[tuple[int, int, str]] = set()
+
+        for cid, cand in promoted_pairs:
+            safe_hints = [h for h in cand.relation_hints if h in SAFE_RELATION_TYPES]
+            review_hints = [h for h in cand.relation_hints if h in REVIEW_RELATION_TYPES]
+            main_type = safe_hints[0] if safe_hints else "same_topic"
+
+            try:
+                neighbors = self.find_neighbors(cid, self.relation_top_k) or []
+            except Exception as e:
+                self.log.warning("night_dream.build_relations: find_neighbors(%d) failed: %s",
+                                 cid, e)
+                continue
+
+            for nid in neighbors:
                 if nid == cid:
                     continue
-                pairs.add((min(int(cid), int(nid)), max(int(cid), int(nid))))
-        for a, b in sorted(pairs):
-            # 默认关系类型为 same_topic（safe），实际类型由调用方在 find_neighbors 内决定
-            # 这里只演示 safe 写路径；review 由 candidate.relation_hints 触发
-            if self.write_safe_relation:
-                self.write_safe_relation(a, b, "same_topic", 0.5, "dream:auto-link")
-                safe_count += 1
+                a, b = min(int(cid), int(nid)), max(int(cid), int(nid))
+                reason = f"dream:hints={','.join(cand.relation_hints) or 'none'}"
+
+                # safe 边
+                safe_key = (a, b, main_type)
+                if safe_key not in seen_pairs and self.write_safe_relation is not None:
+                    try:
+                        self.write_safe_relation(a, b, main_type, 0.5, reason)
+                        seen_pairs.add(safe_key)
+                        safe_count += 1
+                    except Exception as e:
+                        self.log.warning("night_dream.build_relations: write_safe_relation(%d,%d,%s) failed: %s",
+                                         a, b, main_type, e)
+
+                # review 边（如果 hints 里有 review 类型）
+                for rtype in review_hints:
+                    review_key = (a, b, rtype)
+                    if review_key in seen_pairs or self.queue_review_relation is None:
+                        continue
+                    try:
+                        self.queue_review_relation(a, b, rtype, f"dream:hint:{rtype}")
+                        seen_pairs.add(review_key)
+                        review_count += 1
+                    except Exception as e:
+                        self.log.warning("night_dream.build_relations: queue_review(%d,%d,%s) failed: %s",
+                                         a, b, rtype, e)
         return safe_count, review_count
 
     def run(self, chunks: list[Chunk], apply: bool = False) -> DreamResult:
-        candidates = self.extract(chunks)
+        candidates, proposer_errors = self.extract(chunks)
         promoted, rejected = self.gate(candidates)
         written_ids: list[int] = []
+        written_pairs: list[tuple[int, Candidate]] = []
         safe_n = review_n = 0
-        if apply and self.write_candidate:
-            for cand in promoted:
-                wid = self.write_candidate(cand)
-                if wid is not None:
-                    written_ids.append(int(wid))
-            if written_ids:
-                safe_n, review_n = self.build_relations(written_ids)
+
+        if apply:
+            if self.write_candidate is None:
+                self.log.error("night_dream.run: apply=True but write_candidate is None; "
+                               "nothing will be written")
+            else:
+                for cand in promoted:
+                    try:
+                        wid = self.write_candidate(cand)
+                    except Exception as e:
+                        self.log.error("night_dream.run: write_candidate failed for '%s': %s",
+                                       cand.title[:40], e)
+                        continue
+                    if wid is not None:
+                        written_ids.append(int(wid))
+                        written_pairs.append((int(wid), cand))
+                if written_pairs:
+                    safe_n, review_n = self.build_relations(written_pairs)
         return DreamResult(
             chunks_used=len(chunks),
             candidates=candidates,

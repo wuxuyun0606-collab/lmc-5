@@ -26,11 +26,21 @@ yourself.
 
 | File | Replaces / Adds | Summary |
 |------|----------------|---------|
+| `config.py` | new | `LMC5Config` dataclass — every threshold, batch size, top-K, retry knob in one place. `LMC5Config.from_env()` loads from env vars; ships a `retry_llm_call` decorator + `RetryableLLMError` exception. |
+| `schema.sql` | new | Full DDL: `lmc5_curated_memories`, `lmc5_vectors`, `lmc5_memory_relations`, `lmc5_z_audit`, `lmc5_cold_storage`, `lmc5_narrative_index`, `lmc5_e_axis_failures`, `lmc5_dynamic_stopwords`. Run before any of the Python modules. |
+| `.env.example` | new | Environment template — PG DSN, embedder choice (Gemini / Voyage / local), housekeeper LLM keys (DeepSeek default), `LMC5_*` config overrides, Telegram bot token, log/backup paths. **Copy to `.env` and never commit real values.** |
 | `vector_pgvector.py` | replaces `src/lmc5/vector.py` | PostgreSQL + halfvec + ivfflat ANN. Embedder injected via callable. |
-| `night_dream.py` | upgrades `hippocampus.py` + `consolidation.py` | LLM proposer + 6-type classifier + safety gates + safe-relation expansion. Falls back to deterministic baseline if no LLM is wired. |
+| `night_dream.py` | upgrades `hippocampus.py` + `consolidation.py` | LLM proposer + 6-type classifier + safety gates + safe-relation expansion driven by `candidate.relation_hints`. All failures and `max_promote` truncations log explicitly — no silent drops. Falls back to deterministic baseline if no LLM is wired. |
 | `narrative_timeline.py` | new (no core equivalent) | Weekly / monthly narrative index. Picks seeds by weight × arousal, reflects to a title + paragraph. Reflector is injected; default is deterministic. |
 | `ob_recall.py` | upgrades `scoring.py` | Ombre-Brain-style score with category half-life, time ripple, Russell distance for emotional resonance. Decay formula shared between write-time and metabolism. |
-| `e_axis_scorer.py` | upgrades the E axis | LLM-based emotional scoring with categorized failure logs. Provider-agnostic — pass any `llm_call(prompt, timeout) -> str` callable. |
+| `e_axis_scorer.py` | upgrades the E axis | LLM-based emotional scoring with categorized failure logs, exponential-backoff retry on retryable failures (timeout / empty / non-JSON), `min_confidence` gate, and `is_in_shadow_period(...)` helper so the shadow window is enforced in code, not in discipline. Provider-agnostic — pass any `llm_call(prompt, timeout) -> str` callable. |
+
+## Setup order
+
+1. `psql -f schema.sql` against your target database
+2. Copy `.env.example` to `.env` and fill in keys / DSN / overrides
+3. Construct an `LMC5Config` (default or `LMC5Config.from_env()`)
+4. Instantiate each module with the config + injected callables
 
 ## Provider-free philosophy
 
