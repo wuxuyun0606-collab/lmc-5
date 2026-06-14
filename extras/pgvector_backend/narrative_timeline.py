@@ -213,26 +213,34 @@ def make_llm_reflector_prompt(seeds: list[MemoryRecord], period: str) -> str:
 
     维护者可以在 docs/ 里参考这个模板，也可以直接换成自己的。
     重点：要求 LLM 输出"主线 + 冲突 + 转折"，而不是只列事件流水。
+    Header 嵌入反幻觉铁律，禁止脑补/情绪加工/编造金句。
     """
+    from .anti_hallucination import (
+        ANTI_HALLUCINATION_HEADER,
+        NARRATIVE_TASK_REMINDERS,
+    )
+
     period_zh = "一周" if period == "weekly" else "一个月"
     items = "\n".join(
         f"- [w={m.weight:.1f} a={m.arousal:.1f}] {m.created_at.strftime('%m.%d')} {m.title}"
         f"  {m.content[:120]}"
         for m in seeds
     )
-    return f"""你在帮一个长期运行的 AI 整理过去{period_zh}的叙事索引。
+    return ANTI_HALLUCINATION_HEADER + NARRATIVE_TASK_REMINDERS + f"""
+
+你在帮一个长期运行的 AI 整理过去{period_zh}的叙事索引。
 
 候选事件（按 weight × arousal 排序，已过初筛）：
 {items}
 
 要求输出 JSON：
 {{
-  "title": "一行不超过 30 字的主线标题，要有人物/冲突/转折感",
+  "title": "一行不超过 30 字的主线标题，从候选事件里出来；编不出就用最重要那条的 title",
   "summary": "{ '一句话索引,150字内' if period == 'weekly' else '段落式主线,400字内,分主题不分点'}"
 }}
 
 规则：
-1. 别只列事件流水。挑主线、识冲突、写转折。
+1. 别只列事件流水。挑主线、识冲突、写转折——**只从候选事件里挑**。
 2. 不编造细节。所有内容必须能从候选事件回溯。
 3. 不带 markdown。纯文字。
 """

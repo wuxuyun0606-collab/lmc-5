@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 PURE_MODULES = [
     "extras",
     "extras.pgvector_backend",
+    "extras.pgvector_backend.anti_hallucination",
     "extras.pgvector_backend.config",
     "extras.pgvector_backend.ob_recall",
     "extras.pgvector_backend.narrative_timeline",
@@ -121,3 +122,31 @@ def test_callable_validation_at_init():
     assert nd.write_candidate is None
     rp = RecallPipeline()
     assert rp.vector_search is None
+
+
+def test_anti_hallucination_header_embedded_everywhere():
+    """All four LLM prompts must embed the anti-hallucination header."""
+    from extras.pgvector_backend.anti_hallucination import ANTI_HALLUCINATION_HEADER
+    from extras.pgvector_backend.e_axis_scorer import DEFAULT_RUBRIC
+    from extras.pgvector_backend.narrative_timeline import make_llm_reflector_prompt
+    from extras.pgvector_backend.night_dream import make_hippocampus_prompt, Chunk
+
+    # E-axis rubric
+    assert "反幻觉铁律" in DEFAULT_RUBRIC
+    assert "不编" in DEFAULT_RUBRIC
+    assert "不脑补" in DEFAULT_RUBRIC
+    assert "不情绪加工" in DEFAULT_RUBRIC
+
+    # Narrative reflector prompt
+    np = make_llm_reflector_prompt([], "weekly")
+    assert "反幻觉铁律" in np
+    assert "不编造细节" in np
+
+    # Hippocampus proposer prompt
+    hp = make_hippocampus_prompt([Chunk(id=1, text="test content " * 20)])
+    assert "反幻觉铁律" in hp
+    assert "一字不差" in hp
+
+    # Header itself enforces the five rules
+    for rule in ("不编", "真实", "不脑补", "不情绪加工", "不确定就说不确定"):
+        assert rule in ANTI_HALLUCINATION_HEADER, f"missing rule: {rule}"
