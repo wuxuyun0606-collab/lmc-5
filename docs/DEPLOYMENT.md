@@ -56,6 +56,99 @@ A typical day on a VPS-hosted LMC-5 deployment looks like this:
 The split between foreground and background is what makes the agent
 **feel coherent over weeks** without paying for an always-on housekeeper.
 
+## Scheduling The Loop On A VPS
+
+The whole point of the VPS shape is that **the agent grooms its own
+memory on its own schedule, without you doing anything**. Once the
+schedule is set, the persona quietly consolidates yesterday's chunks,
+reflects on last week, and decays stale weights — all while you sleep.
+
+Two equivalent ways to wire it up:
+
+### Option A · cron (simple)
+
+Drop one entry per job into the VPS user's crontab:
+
+```cron
+# nightly: consolidate, dream, decay, audit
+0 4 * * *  cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run nightly >> logs/nightly.log 2>&1
+
+# weekly narrative reflection (Mondays at 04:30 local)
+30 4 * * 1 cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run weekly-narrative >> logs/weekly.log 2>&1
+
+# monthly narrative (1st of the month at 05:00)
+0 5 1 * *  cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run monthly-narrative >> logs/monthly.log 2>&1
+```
+
+Schedule jobs to your **user's quiet hours**, not UTC. The whole point
+is to not collide with foreground use.
+
+### Option B · systemd timer (recommended for production)
+
+systemd gives you durable scheduling, automatic catch-up if the VPS was
+down, and proper service supervision. Two unit files:
+
+```ini
+# /etc/systemd/system/lmc5-nightly.service
+[Unit]
+Description=LMC-5 nightly housekeeper
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=lmc5
+WorkingDirectory=/opt/lmc5-agent
+ExecStart=/opt/lmc5-agent/.venv/bin/python -m lmc5 run nightly
+StandardOutput=append:/var/log/lmc5/nightly.log
+StandardError=append:/var/log/lmc5/nightly.log
+```
+
+```ini
+# /etc/systemd/system/lmc5-nightly.timer
+[Unit]
+Description=Run LMC-5 nightly housekeeper at 04:00 local
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+```
+
+`Persistent=true` is the key line — if the VPS was rebooted at 03:45,
+the job still fires when it comes back. `RandomizedDelaySec=300`
+jitters by up to 5 minutes so multiple agents on the same provider do
+not stampede an LLM API at the exact same second.
+
+Enable with:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now lmc5-nightly.timer
+systemctl list-timers lmc5-nightly.timer
+```
+
+### What "Self-Grooming" Actually Buys You
+
+Once this is running, you can ignore the VPS for weeks and the persona
+will:
+
+- Promote yesterday's events into curated memories (without you
+  reviewing every chunk)
+- Decay last month's tool noise (so recall stays sharp)
+- Catch contradictions in the audit queue (waiting for you to approve)
+- Index the week into a narrative summary (so "what happened last
+  Tuesday" has a real answer)
+- Surface forgotten threads via spontaneous recall (so the next time
+  you log in, the persona may bring something up that you yourself
+  had stopped thinking about)
+
+This is the difference between **a chat app with memory** and **an
+agent that maintains itself**. The VPS shape is what makes the second
+option practical.
+
 ## Three Frontend Options
 
 LMC-5 is the memory layer, not a frontend. You choose how users reach
