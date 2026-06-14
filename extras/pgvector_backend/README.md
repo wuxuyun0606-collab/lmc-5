@@ -34,6 +34,18 @@ yourself.
 | `narrative_timeline.py` | new (no core equivalent) | Weekly / monthly narrative index. Picks seeds by weight × arousal, reflects to a title + paragraph. Reflector is injected; default is deterministic. |
 | `ob_recall.py` | upgrades `scoring.py` | Ombre-Brain-style score with category half-life, time ripple, Russell distance for emotional resonance. Decay formula shared between write-time and metabolism. |
 | `e_axis_scorer.py` | upgrades the E axis | LLM-based emotional scoring with categorized failure logs, exponential-backoff retry on retryable failures (timeout / empty / non-JSON), `min_confidence` gate, and `is_in_shadow_period(...)` helper so the shadow window is enforced in code, not in discipline. Provider-agnostic — pass any `llm_call(prompt, timeout) -> str` callable. |
+| `recall_pipeline.py` | new — closes the "store-to-conversation" gap | Multi-channel parallel recall: vector ANN, FTS fallback when top vector score is low, Y-axis graph 2-hop expansion, Russell emotional resonance, spontaneous-recall channel, optional rerank. Merge/dedup by `source_id` with channel-tag accumulation. |
+| `perception.py` | new | Spontaneous-recall scheduler. Weighted random over high-vitality memories with a deliberate drift fraction, plus time-of-day shaping (night-emotional vs work-factual boost). Writes a JSON cache that the SessionStart and per-turn hooks read. |
+| `hooks/session_start.py` | new — Claude Code hook | Boot-time additionalContext: identity + current facts + recent narrative + open threads + spontaneous-recall surface. |
+| `hooks/user_prompt_submit.py` | new — Claude Code hook | Per-turn additionalContext: routes the prompt through `RecallPipeline.recall()`. Skips trivial messages. Attaches user-emotion coordinate as metadata. |
+| `hooks/session_end.py` | new — Claude Code hook | Archives the session JSONL into `lmc5_raw_events`. Optionally triggers a daytime express dream pass (off by default). |
+
+**Semantic dedup wired into `night_dream`.** Pass a
+`find_semantic_duplicates` callable (typically backed by
+`PgvectorStore.find_duplicates(threshold=0.92)`) at construction time
+and the dream pass will reject cross-batch synonyms before they
+flood the relation graph. See `docs/HOOKS_AND_RECALL.md` for the
+wiring example.
 
 ## Setup order
 
