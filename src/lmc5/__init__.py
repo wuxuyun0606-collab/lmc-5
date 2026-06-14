@@ -1,6 +1,8 @@
 """LMC-5 reference implementation."""
 
 from .consolidation import ConsolidationResult, consolidate_events
+from .fact_evolution import ZAuditResult, ZConflictCandidate, run_z_audit
+from .hippocampus import HippocampusResult, MemoryCandidate, RelationPlan, run_hippocampus
 from .models import (
     EventRecord,
     MemoryRecord,
@@ -18,10 +20,17 @@ __all__ = [
     "MemoryRecord",
     "MemoryStore",
     "ConsolidationResult",
+    "HippocampusResult",
+    "MemoryCandidate",
+    "RelationPlan",
+    "ZAuditResult",
+    "ZConflictCandidate",
     "EventRecord",
     "VectorRecord",
     "cosine_similarity",
     "consolidate_events",
+    "run_hippocampus",
+    "run_z_audit",
     "toy_embed",
     "MetabolismSuggestion",
     "RecallHit",

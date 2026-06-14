@@ -50,6 +50,28 @@ def patrol(conn: sqlite3.Connection, *, split_threshold: int = 5) -> list[Metabo
             )
         )
 
+    z_pending_rows = conn.execute(
+        """
+        SELECT left_memory_id, right_memory_id
+          FROM z_conflict_audits
+         WHERE status = 'pending'
+           AND verdict = 'pending'
+         ORDER BY created_at DESC
+        """
+    ).fetchall()
+    if z_pending_rows:
+        memory_ids: list[int] = []
+        for row in z_pending_rows[:10]:
+            memory_ids.extend([int(row["left_memory_id"]), int(row["right_memory_id"])])
+        suggestions.append(
+            MetabolismSuggestion(
+                action="mark_review",
+                severity="warning",
+                reason=f"{len(z_pending_rows)} Z-axis conflict audits are pending",
+                memory_ids=sorted(set(memory_ids)),
+            )
+        )
+
     other_rows = conn.execute(
         "SELECT id, category, tags_json FROM memories WHERE thread = 'other'"
     ).fetchall()

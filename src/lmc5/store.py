@@ -68,6 +68,29 @@ def _sql_like_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+RELATION_TYPE_WEIGHTS = {
+    "same_event": 1.0,
+    "same_topic": 0.95,
+    "same_project": 0.9,
+    "same_issue": 0.85,
+    "same_tool": 0.75,
+    "derived_from": 0.7,
+    "supports": 0.6,
+    "temporal_sequence": 0.55,
+    "emotional_link": 0.5,
+    "cause_effect": 0.45,
+    "contradicts": 0.25,
+}
+RELATION_DEPTH_WEIGHTS = {1: 0.35, 2: 0.16}
+
+
+def _relation_score(relation_type: str, strength: float, *, depth: int) -> float:
+    bounded_strength = max(0.0, min(float(strength or 1.0), 1.0))
+    type_weight = RELATION_TYPE_WEIGHTS.get(relation_type, 0.5)
+    depth_weight = RELATION_DEPTH_WEIGHTS.get(depth, 0.0)
+    return bounded_strength * type_weight * depth_weight
+
+
 def _row_to_memory(row: sqlite3.Row) -> MemoryRecord:
     return MemoryRecord(
         id=row["id"],
@@ -277,6 +300,26 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 observations_created INTEGER NOT NULL DEFAULT 0,
                 notes_json TEXT NOT NULL DEFAULT '{}'
             );
+
+            CREATE TABLE IF NOT EXISTS z_conflict_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                left_memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+                right_memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+                fact_key TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                verdict TEXT NOT NULL DEFAULT 'pending',
+                confidence REAL,
+                reason TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT '',
+                reviewer TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                CHECK(left_memory_id < right_memory_id),
+                UNIQUE(left_memory_id, right_memory_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_z_conflict_audits_status
+              ON z_conflict_audits(status, verdict);
             """
         )
         self.rebuild_index()
@@ -639,6 +682,132 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             "events": self.search_events(query, limit=event_limit, redact=redact),
         }
 
+    def stats(self) -> dict[str, Any]:
+        """Return read-only database health and coverage statistics."""
+
+        def count(table: str) -> int:
+            return int(self.conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
+
+        status_rows = self.conn.execute(
+            """
+            SELECT status, count(*) AS count
+              FROM memories
+             GROUP BY status
+             ORDER BY count DESC, status
+            """
+        ).fetchall()
+        thread_rows = self.conn.execute(
+            """
+            SELECT thread, count(*) AS count
+              FROM memories
+             GROUP BY thread
+             ORDER BY count DESC, thread
+             LIMIT 20
+            """
+        ).fetchall()
+        category_rows = self.conn.execute(
+            """
+            SELECT category, count(*) AS count
+              FROM memories
+             GROUP BY category
+             ORDER BY count DESC, category
+             LIMIT 20
+            """
+        ).fetchall()
+        role_rows = self.conn.execute(
+            """
+            SELECT role, count(*) AS count
+              FROM events
+             GROUP BY role
+             ORDER BY count DESC, role
+            """
+        ).fetchall()
+        channel_rows = self.conn.execute(
+            """
+            SELECT channel, count(*) AS count
+              FROM events
+             GROUP BY channel
+             ORDER BY count DESC, channel
+             LIMIT 20
+            """
+        ).fetchall()
+        vector_owner_rows = self.conn.execute(
+            """
+            SELECT owner_type, count(*) AS count
+              FROM vectors
+             GROUP BY owner_type
+             ORDER BY owner_type
+            """
+        ).fetchall()
+
+        memory_count = count("memories")
+        event_count = count("events")
+        memory_vector_count = int(
+            self.conn.execute(
+                "SELECT count(DISTINCT owner_id) FROM vectors WHERE owner_type = 'memory'"
+            ).fetchone()[0]
+        )
+        event_vector_count = int(
+            self.conn.execute(
+                "SELECT count(DISTINCT owner_id) FROM vectors WHERE owner_type = 'event'"
+            ).fetchone()[0]
+        )
+
+        return {
+            "memory_count": memory_count,
+            "relation_count": count("relations"),
+            "event_count": event_count,
+            "vector_count": count("vectors"),
+            "event_chunk_count": count("event_chunks"),
+            "consolidation_run_count": count("consolidation_runs"),
+            "z_conflict_audit_count": count("z_conflict_audits"),
+            "z_conflict_pending_count": int(
+                self.conn.execute(
+                    """
+                    SELECT count(*)
+                      FROM z_conflict_audits
+                     WHERE status = 'pending'
+                       AND verdict = 'pending'
+                    """
+                ).fetchone()[0]
+            ),
+            "current_fact_count": int(
+                self.conn.execute(
+                    """
+                    SELECT count(*)
+                      FROM memories
+                     WHERE fact_key IS NOT NULL
+                       AND active_fact = 1
+                       AND status = 'current'
+                    """
+                ).fetchone()[0]
+            ),
+            "status_counts": {str(row["status"]): int(row["count"]) for row in status_rows},
+            "top_threads": {str(row["thread"]): int(row["count"]) for row in thread_rows},
+            "top_categories": {
+                str(row["category"]): int(row["count"]) for row in category_rows
+            },
+            "event_role_counts": {str(row["role"]): int(row["count"]) for row in role_rows},
+            "top_event_channels": {
+                str(row["channel"]): int(row["count"]) for row in channel_rows
+            },
+            "vector_owner_counts": {
+                str(row["owner_type"]): int(row["count"]) for row in vector_owner_rows
+            },
+            "memory_vector_coverage": {
+                "indexed": memory_vector_count,
+                "total": memory_count,
+                "ratio": round(memory_vector_count / memory_count, 4)
+                if memory_count
+                else 0.0,
+            },
+            "event_vector_coverage": {
+                "indexed": event_vector_count,
+                "total": event_count,
+                "ratio": round(event_vector_count / event_count, 4) if event_count else 0.0,
+            },
+        }
+
     def upsert_vector(
         self,
         *,
@@ -820,34 +989,55 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                     candidates[int(record.id)] = (record, 0.5, ["like"])
         return list(candidates.values())
 
-    def _relation_expansion(self, base_ids: list[int]) -> dict[int, tuple[float, list[int]]]:
+    def _relation_expansion(
+        self, base_ids: list[int]
+    ) -> dict[int, tuple[float, list[int], list[str]]]:
         if not base_ids:
             return {}
-        placeholders = ", ".join("?" for _ in base_ids)
-        rows = self.conn.execute(
-            f"""
-            SELECT source_id, target_id, strength
-              FROM relations
-             WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
-            """,
-            (*base_ids, *base_ids),
-        ).fetchall()
-        expanded: dict[int, tuple[float, list[int]]] = {}
         base_set = set(base_ids)
-        for row in rows:
-            source_id = int(row["source_id"])
-            target_id = int(row["target_id"])
-            if source_id in base_set:
-                related_id = target_id
-                from_id = source_id
-            else:
-                related_id = source_id
-                from_id = target_id
-            if related_id in base_set:
-                continue
-            score = min(float(row["strength"] or 1.0), 1.0) * 0.35
-            previous_score, previous_from = expanded.get(related_id, (0.0, []))
-            expanded[related_id] = (max(previous_score, score), sorted(set(previous_from + [from_id])))
+        frontier = set(base_ids)
+        expanded: dict[int, tuple[float, list[int], list[str]]] = {}
+
+        for depth in (1, 2):
+            if not frontier:
+                break
+            placeholders = ", ".join("?" for _ in frontier)
+            rows = self.conn.execute(
+                f"""
+                SELECT source_id, target_id, relation_type, strength
+                  FROM relations
+                 WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
+                """,
+                (*frontier, *frontier),
+            ).fetchall()
+            next_frontier: set[int] = set()
+            for row in rows:
+                source_id = int(row["source_id"])
+                target_id = int(row["target_id"])
+                relation_type = str(row["relation_type"])
+                if source_id in frontier:
+                    related_id = target_id
+                    from_id = source_id
+                else:
+                    related_id = source_id
+                    from_id = target_id
+                if related_id in base_set:
+                    continue
+                score = _relation_score(relation_type, float(row["strength"] or 1.0), depth=depth)
+                if score <= 0:
+                    continue
+                reason = f"related:{depth}:{relation_type}:{from_id}"
+                previous_score, previous_from, previous_reasons = expanded.get(
+                    related_id, (0.0, [], [])
+                )
+                expanded[related_id] = (
+                    max(previous_score, score),
+                    sorted(set(previous_from + [from_id])),
+                    sorted(set(previous_reasons + [reason])),
+                )
+                if depth == 1:
+                    next_frontier.add(related_id)
+            frontier = next_frontier - base_set
         return expanded
 
     def recall_hits(
@@ -861,16 +1051,17 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         base_ids = [int(record.id) for record, _, _ in candidates if record.id is not None]
         relation_scores = self._relation_expansion(base_ids) if expand_relations else {}
 
-        for related_id, (_, related_from) in relation_scores.items():
+        for related_id, (_, related_from, related_reasons) in relation_scores.items():
             try:
                 record = self.get_memory(related_id)
             except KeyError:
                 continue
-            candidates.append((record, 0.0, [f"related:{','.join(map(str, related_from))}"]))
+            fallback_reason = f"related:{','.join(map(str, related_from))}"
+            candidates.append((record, 0.0, related_reasons or [fallback_reason]))
 
         hits: list[RecallHit] = []
         for record, match_score, reasons in candidates:
-            relation_score, related_from = relation_scores.get(int(record.id), (0.0, []))
+            relation_score, related_from, _ = relation_scores.get(int(record.id), (0.0, [], []))
             score = priority_score(record) + match_score + relation_score
             hits.append(
                 RecallHit(
