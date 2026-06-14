@@ -10,7 +10,7 @@
 
 **Recoverable continuity, not infinite context.**
 
-![Hand-drawn LMC-5 open memory plan: relation graph, timeline, fact evolution, chord emotion memory, and memory metabolism around a notebook.](docs/assets/little-ai-earns-tokens.png)
+![LMC-5 cover illustration: an open hand-drawn notebook surrounded by the five axes — relations, fact evolution, chord emotion, narrative timeline, and metabolism — with the LMC-5 mascot looking on. Recoverable continuity as an open-source memory plan.](docs/assets/cover.png)
 
 Every model context window has a ceiling. Maybe it is 100k tokens. Maybe it is
 1M. Maybe one day it is much larger. It is still not infinite, and the longer it
