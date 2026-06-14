@@ -89,6 +89,11 @@ class PgvectorStore:
             model_name: 模型标识，用于多模型并存
             normalize: 是否在写入/查询前 L2 归一化
         """
+        if embedder is not None and not callable(embedder):
+            raise TypeError(
+                f"PgvectorStore: embedder must be callable or None, "
+                f"got {type(embedder).__name__}"
+            )
         self.dsn = dsn
         self.embedder = embedder
         self.table = table

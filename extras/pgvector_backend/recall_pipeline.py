@@ -74,6 +74,19 @@ class RecallPipeline:
             fts_floor: 向量召回最高分低于此值时才走 FTS 兜底
             injection_budget_chars: 最终拼到 system prompt 的字符上限
         """
+        for name, fn in (
+            ("vector_search", vector_search),
+            ("fts_search", fts_search),
+            ("graph_expand", graph_expand),
+            ("emotion_resonate", emotion_resonate),
+            ("spontaneous", spontaneous),
+            ("rerank", rerank),
+        ):
+            if fn is not None and not callable(fn):
+                raise TypeError(
+                    f"RecallPipeline: {name} must be callable or None, "
+                    f"got {type(fn).__name__}"
+                )
         self.vector_search = vector_search
         self.fts_search = fts_search
         self.graph_expand = graph_expand
