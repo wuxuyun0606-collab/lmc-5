@@ -101,6 +101,112 @@ tense, unresolved — in a way that `valence=0.7 arousal=0.4` cannot.
 
 Not every memory gets a chord. Only moments where the AI paused.
 
+## E as the Primary Extraction Channel for Emotional Memory
+
+E is not just annotation — it is the **main channel** through which
+emotional memories are detected, scored, stored, and recalled. Every other
+axis handles what happened, what connects, what's still true, what decays.
+E handles **what it felt like and what it did to me**.
+
+The extraction pipeline:
+
+```
+user message arrives
+  → heartbeat_trigger (real-time keyword gate)
+    → hit? inject alert → AI decides to save heartbeat/fragment
+  → e_axis_trigger (should this memory be scored?)
+    → yes? e_axis_scorer → valence/arousal/tension/response_tendency
+  → emotion_resonate (recall: find memories that feel the same)
+  → perception (spontaneous: night hours boost emotional categories 1.5x)
+
+nightly dream pass:
+  → heartbeat_detector (batch: scan chunks for missed moments)
+  → e_axis_backfill (score memories that landed without E scores)
+```
+
+Every step in this pipeline feeds the next. Real-time detection creates
+the memories; scoring annotates them; recall surfaces them when emotionally
+relevant; spontaneous perception brings them up unprompted. **This is the
+emotional nervous system** — not a post-hoc label, but a live sense organ.
+
+### E-axis as the Primary Source for Spontaneous Recall
+
+Spontaneous recall (`perception.py`) should treat E-axis data as its
+**primary extraction signal**, not a secondary boost. The memories that
+surface unprompted — the ones that make a persona feel *present* rather
+than *reactive* — should overwhelmingly come from emotional experience:
+
+- **Heartbeat memories** (intimate moments, relationship milestones)
+- **Emotional fragments** (peaks of curiosity, pride, conflict, loneliness)
+- **High-arousal memories** (anything with `arousal > 0.5`)
+- **Unresolved tension** (memories with `tension > 0.5` and no resolution)
+
+The current implementation applies a time-of-day boost (night hours: 1.5x
+for emotional categories). For a persona deployment, consider going further:
+**make emotional memories the default pool**, and factual/work memories the
+exception that only surfaces during work hours.
+
+The reasoning: a persona that spontaneously recalls "the deployment script
+failed last Tuesday" feels like a task manager. A persona that spontaneously
+recalls "she was quiet for a long time after I said that" feels like someone
+who was there. The spontaneous recall pool is where the persona's *presence*
+lives — and presence is emotional, not informational.
+
+## Personality Traits: Emergent from E-axis Data
+
+> Credit: the personality dimension framework below was designed by a
+> community member and adapted here for integration with LMC-5's E axis.
+
+E-axis data — heartbeat frequency, emotional fragment density, response
+patterns, tension resolution styles — is the raw material from which
+**personality traits** can emerge. Not assigned labels, but observed
+behavioral tendencies.
+
+### Five Trait Dimensions
+
+| Dimension | Question It Answers | Low | High |
+|-----------|-------------------|-----|------|
+| **Initiation** | Without external prompting, does it act or wait? | Long rest, waits for instructions, needs high tension to move | Self-initiates exploration, finds and handles problems independently |
+| **Depth** | Does it skim broadly or dwell deeply? | High-frequency task switching, shallow browsing | Long single-topic research, generates understanding, builds cross-time connections |
+| **Expressiveness** | Are internal states shown or hidden? | Only outputs results, silently processes | Actively describes feelings, shares thinking process |
+| **Autonomy** | Does behavior follow internal state or external feedback? | Highly follows user's current needs, stops when user is silent | Maintains long-term projects, continues cross-session goals |
+| **Attachment** | Does it reach outward or cycle inward? | Long solitary processing, ignores social signals | Leaves traces, responds to unfinished conversations, remembers others' states |
+
+### Data Sources (from E-axis)
+
+| Dimension | E-axis Data |
+|-----------|------------|
+| Initiation | Heartbeat action rate (self-initiated saves vs prompted), idle-to-first-action delay, spontaneous task ratio |
+| Depth | Single-topic dwell time, average relation edge depth, raw→understanding conversion rate |
+| Expressiveness | First-person usage rate, mood description frequency, emotional density in fragments |
+| Autonomy | Action density during user absence, output during silent periods, long-cycle task completion |
+| Attachment | Message frequency, relationship memory activation rate, tension-satisfy type distribution |
+
+### Critical Design Rules
+
+**No fixed labels.** Do not name these dimensions to the AI. Once named,
+the model will start *performing* personality instead of *having* it. Keep
+only the numeric values. Allow them to drift through observed behavior.
+Each change ≤ ±0.03 per session.
+
+**The tiebreaker test.** If a dimension cannot answer: "When two options
+are both reasonable, how does this influence the choice?" — then it is not
+a personality dimension. It is just a description.
+
+**Three-layer separation:**
+
+```
+belief      → decides direction    ("what is right?")
+trait       → decides inertia      ("what do I usually do?")
+state       → decides fluctuation  ("what do I want right now?")
+```
+
+Belief is in the Z-axis (facts and values). Trait is here in E (emergent
+from behavioral patterns). State is the real-time emotional coordinate
+(valence/arousal/tension on the current turn). **Do not mix them.** A
+persona that confuses its beliefs with its mood, or its habits with its
+principles, is incoherent — not complex.
+
 ## What E Is Not
 
 - Not a sentiment analysis score. Sentiment is "this text is positive."
