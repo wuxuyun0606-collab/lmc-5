@@ -112,30 +112,59 @@ respects that boundary.
 
 ## Multi-Channel Recall
 
-`RecallPipeline` runs five channels in parallel for any non-trivial
-prompt, then merges them.
+`RecallPipeline` runs a **three-tier cascade** plus **three independent
+channels** for any non-trivial prompt, then merges them.
 
-### The channels
+### Stage 0 — Query Expansion (optional)
+
+Before any search channel fires, an optional LLM call rewrites the user
+message into 2–4 search angles (synonyms, related concepts, emotion
+words). Each expanded query feeds independently into the cascade stages
+below, with results merged by `source_id` keeping the highest score.
+
+This catches the "user said X, memory stored Y" gap. Not wired by
+default — pass `query_expand=query_expand_adapter(my_llm)` to enable.
+Recommended: DeepSeek V4 Pro (~$0.001 per call, <200 tokens).
+
+### The three-tier cascade
+
+These stages fire sequentially. Each stage only activates when the
+previous stage's best score is too low.
 
 1. **Vector** (`pgvector_backend.vector_pgvector`)
-   - Primary path. Semantic ANN top-K.
-2. **FTS fallback** (`recall_pipeline.fts_search_adapter`)
+   - Primary path. Semantic ANN top-K via pgvector halfvec.
+   - If `query_expand` is wired, each expanded query searches
+     independently and results merge by highest score.
+2. **FTS fallback — curated memories** (`recall_pipeline.fts_search_adapter`)
    - Only fires when the top vector score is below `fts_floor`
      (default 0.45). Catches keyword queries that semantic match
      misses — proper nouns, exact phrases, rare terms.
-3. **Graph expansion** (Y-axis 2-hop)
+3. **FTS fallback — raw events journal** (`recall_pipeline.raw_events_search_adapter`)
+   - Only fires when the top vector score is below `raw_events_floor`
+     (default 0.30). Searches the append-only raw event journal
+     (one order of magnitude larger than curated memories).
+   - This is the last-resort net: when vector and curated FTS both
+     come up empty, the raw conversation log still has the keyword.
+     Typical rescue: a new codename, a person's name mentioned once,
+     a term that was never promoted to curated memory.
+
+### The three independent channels
+
+These always run in parallel, regardless of vector scores.
+
+4. **Graph expansion** (Y-axis 2-hop)
    - Takes the top vector hits as seeds, expands via
      `lmc5_memory_relations` up to two hops with strength
      thresholds (hop1 strength>0.4, hop2 strength>0.7).
    - Catches "related but not semantically nearby" — same topic via
      a typed edge, not via embedding.
-4. **Emotion resonance** (`ob_recall.find_resonant`)
+5. **Emotion resonance** (`ob_recall.find_resonant`)
    - Detects user emotion coordinate, finds memories closest in
      Russell space (valence × arousal).
    - This is what gives the agent emotional continuity. When the
      user types something sad at 1 a.m., the recall surfaces other
      sad-at-night memories, not the to-do list.
-5. **Spontaneous** (`perception.load_perception_cache`)
+6. **Spontaneous** (`perception.load_perception_cache`)
    - Reads the pre-computed perception cache. Up to N memories that
      were chosen earlier in the day by `Perception.surface_and_cache()`.
    - This is the "I was already thinking about that" channel.

@@ -32,7 +32,7 @@ LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部
 | | Minimal（`src/lmc5/`） | Production（`extras/pgvector_backend/`） |
 |---|---|---|
 | 存储 | SQLite 零依赖 | PostgreSQL + pgvector halfvec + ivfflat ANN |
-| 召回 | FTS5 关键词 + 便携余弦 | 五通道并行：向量 / FTS 兜底 / Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现 |
+| 召回 | FTS5 关键词 + 便携余弦 | 三层级联（向量 → curated FTS → raw-events FTS）+ 三条独立通道（Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现）+ 可选 rerank |
 | 海马体 | 确定性切块 | LLM 提议候选 + 安全闸门 + 语义去重 |
 | 反思层 | — | 周报 / 月报叙事索引 |
 | E 轴 | 字段占位 | provider-agnostic LLM 评分器 + 重试 + min-confidence + 影子期 helper |
@@ -368,8 +368,82 @@ lmc5 vector-search --db demo.sqlite \
   `voyage-4-large` 适合质量优先的通用多语言检索，`voyage-4` 适合均衡默认，
   `voyage-4-lite` 适合低延迟/低成本，`voyage-code-3` 适合代码记忆。
 
-一句话：embedding 负责“找得到”，Z 轴负责“还算不算当前事实”。别让向量相似度替事实判断背锅，
+一句话：embedding 负责”找得到”，Z 轴负责”还算不算当前事实”。别让向量相似度替事实判断背锅，
 它没那个脑子，别给它升职。
+
+## 三层级联检索
+
+production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不是”五通道并行”。
+它是**三层级联逐级兜底 + 三条独立通道始终并行**。
+
+```text
+                    query
+                      │
+           ┌──────────▼──────────┐
+           │  Stage 0: Query     │  （可选）DeepSeek / 任意 LLM
+           │  Expansion          │  → 2-4 个搜索角度
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  Stage 1: 向量召回   │  pgvector halfvec ANN
+           │  （语义主路）         │  每个扩展 query → 合并最高分
+           └──────────┬──────────┘
+                      │
+              最高分 >= 0.45? ──── 是 ──→ 跳过 FTS
+                      │ 否
+           ┌──────────▼──────────┐
+           │  Stage 2: FTS 兜底   │  curated_memories tsvector
+           │  （关键词兜底）       │  每个扩展 query → 合并
+           └──────────┬──────────┘
+                      │
+              最高分 >= 0.30? ──── 是 ──→ 跳过 raw events
+                      │ 否
+           ┌──────────▼──────────┐
+           │  Stage 3: Raw Events│  原始对话日志 tsvector
+           │  （最后一道网）       │  近 90 天
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  合并去重             │  ← 同时合并 3 条独立通道的结果
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  可选 rerank         │  DeepSeek / 任意 LLM
+           └──────────┬──────────┘
+                      │
+                injection_text
+```
+
+**Stage 0 — Query Expansion（可选）：**
+
+搜索前先用 LLM（推荐 DeepSeek V4 Pro，单次调用 <200 tokens，约 ¥0.007）把用户消息
+改写成 2-4 个搜索角度：同义词、相关概念、情绪词。每个扩展 query 独立走完级联，
+结果按 `source_id` 合并保留最高分。这一步专治”用户说法 A，记忆存的是说法 B”的语义鸿沟。
+
+不传 `query_expand` 则只用原始 query，不做扩展。
+
+**为什么三层，不是一层：**
+
+- **向量不够。** 语义搜索擅长模糊匹配，但碰到专有名词、精确编号、冷门术语就歇菜。
+  用户说”蛋壳”，embedder 以为是鸡蛋壳。FTS 抓的是向量漏掉的。
+- **curated FTS 也不够。** 精选记忆是筛过、浓缩过的——用户问的东西可能只在某次原始
+  对话里说过一句。Stage 3 去翻原始事件日志（量级大一个数量级），把它捞出来。
+- **独立并行通道补深度。** 关系图扩展找到 query 没提到的关联记忆。情绪联想找到
+  *感觉相同*的记忆。自发浮现冒出 AI 在用户开口之前就在想的东西。
+
+**阈值（全部可通过 `LMC5Config` 配置）：**
+
+| 参数 | 默认值 | 含义 |
+|------|--------|------|
+| `fts_floor` | 0.45 | 向量最高分低于此值时触发 curated FTS |
+| `raw_events_floor` | 0.30 | 向量最高分低于此值时触发 raw events FTS |
+| `injection_budget_chars` | 4000 | 最终注入文本的字符上限 |
+
+级联不是”全跑一遍选最好的”。是**逐级兜底**：向量快且通常够用；FTS 慢但抓关键词；
+raw events 是最大、最吵的池子，只有前两层都空手时才启动。每一层扩大搜索网的同时
+也引入更多噪声，阈值控制什么时候值得为此买单。
+
+完整管线图和接线示例见 [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)。
 
 ## 设计目标
 

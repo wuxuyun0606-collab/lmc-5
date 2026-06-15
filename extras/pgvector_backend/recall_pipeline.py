@@ -1,14 +1,17 @@
 """多通道召回 pipeline · 把记忆从仓库流到对话里
 
-PR 之前的状态：只有 vector_pgvector.search_vectors 一条通道。
-这个文件把召回升级成"多通道并行 + 合并 + 可选 rerank"：
+完整管线：
 
-  1. 语义召回（pgvector halfvec ANN）
-  2. FTS 兜底（向量分都低时挂 FTS，避免空回）
-  3. 关系图 2 跳扩展（种子 → graph_activate）
-  4. 情绪联想（Russell 距离找近邻碎片）
-  5. 自发浮现（perception.py 注入 1-2 条不被问也想起的）
-  6. 可选 rerank（DeepSeek/任意 LLM 做最终排序）
+  0. Query Expansion（可选 · DeepSeek/任意 LLM 扩展 2-4 个搜索角度）
+  1. 三层级联检索：
+     ├── Stage 1: pgvector 语义召回（主路 · halfvec ANN）
+     ├── Stage 2: curated FTS 全文兜底（向量 top_score < 0.45 时启动）
+     └── Stage 3: raw events FTS 兜底（向量 top_score < 0.30 时启动）
+  2. 三条独立并行通道：
+     ├── 关系图 2 跳扩展（种子 → graph_activate）
+     ├── 情绪联想（Russell 距离找近邻碎片）
+     └── 自发浮现（perception.py 注入 1-2 条不被问也想起的）
+  3. 合并去重 + 可选 rerank（DeepSeek/任意 LLM 做最终排序）
 
 哲学：召回是"管道"不是"仓库"。每条通道都可注入、可关、可换。
 """
@@ -54,6 +57,7 @@ class RecallPipeline:
         spontaneous: Optional[Callable[[int], list[RecallHit]]] = None,
         raw_events_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
         rerank: Optional[Callable[[str, list[RecallHit], int], list[RecallHit]]] = None,
+        query_expand: Optional[Callable[[str], list[str]]] = None,
         vector_top_k: int = 8,
         fts_top_k: int = 5,
         raw_events_top_k: int = 5,
@@ -67,9 +71,12 @@ class RecallPipeline:
         injection_budget_chars: int = 4000,
     ):
         """
-        三层检索 + 兜底机制：
+        完整管线：Query Expansion → 三层检索 + 兜底 → 合并去重 → OB 评分 → 精排
 
-            Stage 1: vector （语义主路 · pgvector ANN）
+            Stage 0: query_expand （可选 · LLM 扩展 2-4 个搜索角度，覆盖同义词/
+                                    相关概念/情绪词。不传则只用原始 query）
+            Stage 1: vector （语义主路 · pgvector ANN。若传了 query_expand，
+                              每个扩展 query 串行搜索，结果合并去重取最高分）
             Stage 2: fts    （兜底 1 · 当 vector top_score < fts_floor 时启动；
                               查 curated_memories 的 tsvector）
             Stage 3: raw_events （兜底 2 · 当 vector top_score < raw_events_floor 时
@@ -87,6 +94,8 @@ class RecallPipeline:
             emotion_resonate: (query, top_k) → Russell 情绪联想 hits
             spontaneous: (top_k) → 自发浮现 hits（不查询，按概率冒出）
             rerank: (query, hits, top_k) → 重排（可接 DeepSeek/任意 LLM）
+            query_expand: (query) → [expanded_query_1, ...] （可选 · LLM 查询扩展。
+                          不传则只用原始 query。推荐接 DeepSeek 等便宜模型）
             fts_floor: 向量召回最高分低于此值时走 FTS 兜底
             raw_events_floor: 向量召回最高分低于此值时再启动 raw events 兜底
                               （比 fts_floor 更严——只在真正捞不到时才查原始事件）
@@ -100,6 +109,7 @@ class RecallPipeline:
             ("emotion_resonate", emotion_resonate),
             ("spontaneous", spontaneous),
             ("rerank", rerank),
+            ("query_expand", query_expand),
         ):
             if fn is not None and not callable(fn):
                 raise TypeError(
@@ -109,6 +119,7 @@ class RecallPipeline:
         self.vector_search = vector_search
         self.fts_search = fts_search
         self.raw_events_search = raw_events_search
+        self.query_expand = query_expand
         self.graph_expand = graph_expand
         self.emotion_resonate = emotion_resonate
         self.spontaneous = spontaneous
@@ -189,11 +200,36 @@ class RecallPipeline:
         channel_results: list[tuple[str, list[RecallHit]]] = []
         channels_used: list[str] = []
 
-        # 1. 向量召回（主路）
+        # 0. Query Expansion（可选 · LLM 扩展多角度搜索词）
+        queries = [query]
+        if self.query_expand is not None:
+            try:
+                expanded = self.query_expand(query)
+                if expanded and isinstance(expanded, list):
+                    seen = {query}
+                    for q in expanded:
+                        q = str(q).strip()
+                        if q and q not in seen:
+                            seen.add(q)
+                            queries.append(q)
+                    queries = queries[:5]
+                    if len(queries) > 1:
+                        log.info("recall: query_expand produced %d queries", len(queries))
+            except Exception as e:
+                log.warning("recall: query_expand failed, using original query: %s", e)
+
+        # 1. 向量召回（主路 · 每个扩展 query 串行搜索，合并去重取最高分）
         vector_hits: list[RecallHit] = []
         if self.vector_search is not None:
-            vector_hits = self._safe_call("vector", self.vector_search,
-                                          query, self.vector_top_k)
+            vec_merged: dict[int, RecallHit] = {}
+            for q in queries:
+                hits = self._safe_call("vector", self.vector_search,
+                                       q, self.vector_top_k)
+                for h in hits:
+                    if h.source_id not in vec_merged or h.score > vec_merged[h.source_id].score:
+                        vec_merged[h.source_id] = h
+            vector_hits = sorted(vec_merged.values(), key=lambda h: h.score, reverse=True)
+            vector_hits = vector_hits[:self.vector_top_k]
             if vector_hits:
                 channel_results.append(("vector", vector_hits))
                 channels_used.append("vector")
@@ -201,8 +237,14 @@ class RecallPipeline:
         # 2. FTS 兜底 1 · curated_memories（向量分都低时才走，避免空回）
         top_vec_score = max((h.score for h in vector_hits), default=0.0)
         if self.fts_search is not None and top_vec_score < self.fts_floor:
-            fts_hits = self._safe_call("fts", self.fts_search,
-                                       query, self.fts_top_k)
+            fts_merged: dict[int, RecallHit] = {}
+            for q in queries:
+                hits = self._safe_call("fts", self.fts_search, q, self.fts_top_k)
+                for h in hits:
+                    if h.source_id not in fts_merged or h.score > fts_merged[h.source_id].score:
+                        fts_merged[h.source_id] = h
+            fts_hits = sorted(fts_merged.values(), key=lambda h: h.score, reverse=True)
+            fts_hits = fts_hits[:self.fts_top_k]
             if fts_hits:
                 channel_results.append(("fts", fts_hits))
                 channels_used.append("fts")
@@ -212,8 +254,15 @@ class RecallPipeline:
         # 2b. FTS 兜底 2 · raw events journal（更严苛的阈值——只有真正捞不到时才查
         #     原始对话日志，因为这层数据量大、噪声多）
         if self.raw_events_search is not None and top_vec_score < self.raw_events_floor:
-            raw_hits = self._safe_call("raw_events", self.raw_events_search,
-                                       query, self.raw_events_top_k)
+            raw_merged: dict[int, RecallHit] = {}
+            for q in queries:
+                hits = self._safe_call("raw_events", self.raw_events_search,
+                                       q, self.raw_events_top_k)
+                for h in hits:
+                    if h.source_id not in raw_merged or h.score > raw_merged[h.source_id].score:
+                        raw_merged[h.source_id] = h
+            raw_hits = sorted(raw_merged.values(), key=lambda h: h.score, reverse=True)
+            raw_hits = raw_hits[:self.raw_events_top_k]
             if raw_hits:
                 channel_results.append(("raw_events", raw_hits))
                 channels_used.append("raw_events")
@@ -566,4 +615,47 @@ def emotion_resonate_adapter(
             )))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [h for _, h in scored[:top_k]]
+    return call
+
+
+def query_expand_adapter(
+    llm_call: Callable[[str, int], Optional[str]],
+    max_queries: int = 4,
+):
+    """Query Expansion 适配器 · 用 LLM 把用户消息扩展成多角度搜索词。
+
+    llm_call 签名：(prompt: str, max_tokens: int) -> Optional[str]
+    推荐接 DeepSeek V4 Pro 等便宜模型（一次调用 <200 tokens）。
+
+    示例：
+        from extras.pgvector_backend.recall_pipeline import query_expand_adapter
+
+        def my_llm(prompt, max_tokens):
+            return deepseek_client.chat(prompt, max_tokens=max_tokens)
+
+        pipeline = RecallPipeline(
+            query_expand=query_expand_adapter(my_llm, max_queries=4),
+            vector_search=...,
+        )
+    """
+    def call(query: str) -> list[str]:
+        truncated = query[:2000]
+        prompt = (
+            "你是搜索查询扩展器。根据用户消息生成2-3个不同角度的搜索关键词组合。\n"
+            "要求：每行一个查询，包含同义词/相关概念/情绪词。不要编号不要解释。\n\n"
+            f"用户消息: {truncated}"
+        )
+        content = llm_call(prompt, 200)
+        if not content:
+            return [query]
+        queries = [query]
+        seen = {query}
+        for line in content.split("\n"):
+            line = line.strip()
+            if line and line not in seen:
+                seen.add(line)
+                queries.append(line)
+            if len(queries) >= max_queries:
+                break
+        return queries
     return call

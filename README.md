@@ -37,7 +37,7 @@ matched to different deployment shapes:
 | | Minimal (`src/lmc5/`) | Production (`extras/pgvector_backend/`) |
 |---|---|---|
 | Storage | SQLite, zero deps | PostgreSQL + pgvector halfvec + ivfflat ANN |
-| Recall | FTS5 lexical + portable cosine | 5-channel parallel: vector / FTS fallback / Y-axis graph 2-hop / Russell emotion / spontaneous |
+| Recall | FTS5 lexical + portable cosine | 3-tier cascade (vector → curated FTS → raw-events FTS) + 3 independent channels (Y-graph 2-hop / Russell emotion / spontaneous) + optional rerank |
 | Hippocampus | Deterministic chunking | LLM-proposed candidates + safety gates + semantic dedup |
 | Reflection | — | Weekly / monthly narrative timeline |
 | E axis | Field placeholders | Provider-agnostic LLM scorer with retry + min-confidence + shadow-period helper |
@@ -468,8 +468,96 @@ lmc5 vector-search --db demo.sqlite \
   检索。`voyage-4-large` 适合质量优先的通用多语言检索，`voyage-4` 适合均衡
   默认，`voyage-4-lite` 适合低延迟/低成本，`voyage-code-3` 适合代码记忆。
 
-一句话：embedding 负责“找得到”，Z 轴负责“还算不算当前事实”。别让向量相似度
+一句话：embedding 负责”找得到”，Z 轴负责”还算不算当前事实”。别让向量相似度
 替事实判断背锅，它没那个脑子，别给它升职。
+
+## Three-Tier Recall Cascade
+
+The production recall pipeline (`extras/pgvector_backend/recall_pipeline.py`)
+is not “five channels in parallel”. It is a **three-tier cascade with
+progressive fallback** plus three independent channels that always run.
+
+```text
+                    query
+                      │
+           ┌──────────▼──────────┐
+           │  Stage 0: Query     │  (optional) DeepSeek / any LLM
+           │  Expansion          │  → 2-4 search angles
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  Stage 1: Vector    │  pgvector halfvec ANN
+           │  (semantic main)    │  each expanded query → merge best scores
+           └──────────┬──────────┘
+                      │
+              top_score >= 0.45? ──── yes ──→ skip FTS
+                      │ no
+           ┌──────────▼──────────┐
+           │  Stage 2: FTS       │  curated_memories tsvector
+           │  (keyword fallback) │  each expanded query → merge
+           └──────────┬──────────┘
+                      │
+              top_score >= 0.30? ──── yes ──→ skip raw events
+                      │ no
+           ┌──────────▼──────────┐
+           │  Stage 3: Raw Events│  raw_events journal tsvector
+           │  (last resort)      │  recent 90 days
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  merge + dedup      │  ← also merges the 3 independent channels
+           └──────────┬──────────┘
+                      │
+           ┌──────────▼──────────┐
+           │  optional rerank    │  DeepSeek / any LLM
+           └──────────┬──────────┘
+                      │
+                injection_text
+```
+
+**Stage 0 — Query Expansion (optional):**
+
+Before any search runs, an LLM (DeepSeek V4 Pro recommended — one call,
+<200 tokens, ~$0.001) rewrites the user message into 2–4 search angles:
+synonyms, related concepts, emotion words. Each expanded query feeds into
+the cascade independently, and results are merged by `source_id` keeping
+the highest score. This catches the "user said it one way, memory stored
+it another way" gap that pure embedding similarity misses.
+
+Not wired by default — pass `query_expand=query_expand_adapter(my_llm)`
+to enable. Without it, the pipeline uses the raw query only.
+
+**Why three tiers, not one:**
+
+- **Vector alone is not enough.** Semantic search is great at fuzzy matches
+  but terrible at proper nouns, exact codes, and rare terms. The user says
+  “蛋壳” and the embedder thinks it is about eggshells. FTS catches what
+  vectors miss.
+- **Curated FTS alone is not enough.** Curated memories are filtered,
+  condensed — the user asks about something that was only ever said in a
+  raw conversation turn. Stage 3 digs into the raw event journal (one order
+  of magnitude larger) and catches it.
+- **Always-on parallel channels add depth.** Graph expansion finds related
+  memories the query never mentioned. Emotion resonance finds memories
+  that *feel* the same. Spontaneous recall surfaces what the agent was
+  already thinking about before the user typed anything.
+
+**Thresholds (all configurable via `LMC5Config`):**
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `fts_floor` | 0.45 | Vector top score below this triggers curated FTS |
+| `raw_events_floor` | 0.30 | Vector top score below this triggers raw events FTS |
+| `injection_budget_chars` | 4000 | Max chars in the final injection text |
+
+The cascade is **not** “run everything and pick the best”. It is
+**escalation**: vector is fast and usually sufficient; FTS is slower but
+catches keywords; raw events is the largest, noisiest pool and only
+activates when the first two came up empty. Each tier widens the net
+at the cost of more noise. The thresholds control when to pay that cost.
+
+See [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) for the full
+pipeline diagram and wiring examples.
 
 ## Design Goal
 
