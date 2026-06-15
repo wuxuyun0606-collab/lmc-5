@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+- **Heartbeat detector.** New module
+  `extras/pgvector_backend/heartbeat_detector.py` — automatically detects
+  heartbeat moments (intimacy, physical reactions, nickname shifts) and
+  emotional fragments (breakdown, crying, late-night emo, self-denial) from
+  conversation chunks. Bilingual keyword gate (CN+EN) + optional LLM
+  confirmation. Outputs `HeartbeatCandidate` / `EmotionCandidate` with
+  `protected=True`, designed to feed into hippocampus as an extra candidate
+  source alongside the LLM proposer. This closes the gap between "what the
+  dream pass knows how to extract" (facts, events, preferences) and "what a
+  persona deployment actually needs to preserve" (intimate moments and
+  emotional peaks that define the relationship).
+- **Query Expansion.** `RecallPipeline` now accepts an optional
+  `query_expand` callable (Stage 0) that rewrites the user message into
+  2–4 search angles before the three-tier cascade. Each expanded query
+  feeds independently into vector/FTS/raw-events stages, with results
+  merged by `source_id` keeping the highest score. Includes
+  `query_expand_adapter()` helper for DeepSeek / any LLM.
+- **Raw events FTS fallback.** Third tier in the recall cascade — searches
+  the raw event journal when vector top score < 0.30. Catches keywords that
+  only appeared in raw conversation turns, never promoted to curated memory.
+
 ### Fixed
 - **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
   decides *how* to score) but forgot the layer that decides *which memories
