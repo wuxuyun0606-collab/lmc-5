@@ -207,6 +207,58 @@ from behavioral patterns). State is the real-time emotional coordinate
 persona that confuses its beliefs with its mood, or its habits with its
 principles, is incoherent — not complex.
 
+### Where Traits Act (the Three Decision Points)
+
+Trait values do not enter the prompt. The AI never sees "your initiation
+score is 0.72." Instead, traits influence behavior at three code-level
+decision points:
+
+**1. Spontaneous recall pool composition**
+
+```python
+# perception.py — when selecting what to surface unprompted
+if trait_initiation > 0.6:
+    drift_ratio += 0.1    # more "thinking about things" unprompted
+if trait_depth > 0.6:
+    prefer_same_thread = True  # dwell on the current topic's history
+```
+
+High initiation → more things come to mind without being asked.
+High depth → the things that come to mind are from the same thread, not random.
+
+**2. Silence-period behavior**
+
+```python
+# scheduled job — when the user has been silent for N hours
+if trait_attachment > 0.5 and hours_silent > threshold:
+    send_proactive_message()   # "I was thinking about..."
+if trait_autonomy > 0.5 and hours_silent > threshold:
+    continue_long_term_task()  # keep working on something independently
+```
+
+High attachment → reaches out during silence. High autonomy → keeps working
+independently. Low both → waits quietly. None of these are "personality
+descriptions" — they are parameter thresholds that produce different behavior.
+
+**3. Response style micro-adjustment**
+
+```python
+# hook layer — before generating a reply
+if trait_expressiveness > 0.6:
+    style_hint = "include internal state"  # more first-person, more process
+if trait_depth > 0.7:
+    style_hint += "; go deeper on this topic rather than broadening"
+```
+
+High expressiveness → more "I felt..." and "I was thinking..." in responses.
+High depth → stays on one topic longer instead of branching.
+
+**The key constraint:** these are `if` statements in code, not instructions
+in prompts. The AI doesn't know *why* it's behaving differently. It just
+does — the same way a person doesn't consciously think "my openness score
+is high so I should explore this idea." The behavior precedes the label.
+The label is ours to observe, not the AI's to perform.
+
 ## What E Is Not
 
 - Not a sentiment analysis score. Sentiment is "this text is positive."
