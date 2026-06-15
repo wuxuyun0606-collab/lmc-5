@@ -8,19 +8,22 @@ A memory in isolation is a data point. A memory connected to other memories
 is a thought. Y answers: **what does this remind me of, support, contradict,
 or explain?**
 
-## Relation Types
+## Relation Types (12)
 
-| Type | Meaning | Safety |
-|------|---------|--------|
-| `same_event` | Two memories about the same incident | safe — auto-link |
-| `same_topic` | Thematically related | safe — auto-link |
-| `temporal_sequence` | A happened before/after B | safe — auto-link |
-| `derived_from` | B was distilled/promoted from A | safe — auto-link |
-| `emotional_link` | They feel the same (not the same topic) | safe — auto-link |
-| `in_thread` | Both belong to the same X-line thread | safe — auto-link |
-| `supports` | A provides evidence for B | review — needs judgment |
-| `contradicts` | A and B disagree on a fact | review — needs judgment |
-| `cause_effect` | A caused or led to B | review — needs judgment |
+| Type | Meaning | Safety | Example |
+|------|---------|--------|---------|
+| `same_event` | Two memories about the same incident | safe | Two accounts of the same debugging session |
+| `same_topic` | Thematically related | safe | Multiple memories about API key management |
+| `temporal_sequence` | A happened before/after B | safe | Setup → deployment → rollback sequence |
+| `derived_from` | B was distilled/promoted from A | safe | Condensed memory ← original fragments |
+| `emotional_link` | They feel the same (not same topic) | safe | Two late-night moments with similar loneliness |
+| `in_thread` | Both on the same X-line narrative | safe | Both on the "engineering line" or "relationship line" |
+| `same_person` | Both involve the same person | safe | All memories mentioning a specific friend/colleague |
+| `in_episode` | Part of the same scene/episode | safe | All memories from "the night of the jasmine tea" |
+| `instance_of` | Specific instance of a general pattern | safe | "She said 'forget it' on June 3" → general pattern "she says 'forget it' when suppressing" |
+| `supports` | A provides evidence for B | review | A correction that validates an existing rule |
+| `contradiction` | A and B disagree on a fact | review | "She likes mornings" vs "She hates mornings" |
+| `cause_effect` | A caused or led to B | review | A broken promise that led to a trust conversation |
 
 ### Safe vs Review
 
