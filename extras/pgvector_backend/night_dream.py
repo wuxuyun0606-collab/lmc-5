@@ -50,6 +50,9 @@ SAFE_RELATION_TYPES = (
     "emotional_link",
     "derived_from",
     "in_thread",
+    "same_person",
+    "in_episode",
+    "instance_of",
 )
 REVIEW_RELATION_TYPES = ("contradiction", "cause_effect", "supports")
 

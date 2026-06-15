@@ -427,6 +427,7 @@ def graph_expand_adapter(
     safe_relation_types: tuple = (
         "same_event", "same_topic", "temporal_sequence",
         "emotional_link", "derived_from", "in_thread",
+        "same_person", "in_episode", "instance_of",
     ),
     exclude_sources: tuple = ("thread", "concept"),
 ):
