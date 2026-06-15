@@ -3,6 +3,11 @@
 > How to use LMC-5 as the foundation of a long-living AI companion,
 > not just a memory cache for a coding agent.
 
+> **"Personality is not for understanding yourself. Personality is for
+> breaking ties."** — When two options are both reasonable, personality is
+> what tips the scale. If a dimension can't answer that question, it's a
+> description, not a trait.
+
 ## TL;DR
 
 LMC-5 is published as a memory layer for long-running LLM agents. The same
