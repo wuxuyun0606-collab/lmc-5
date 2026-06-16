@@ -83,3 +83,90 @@ be adjusted by metabolism over time.
   liked X also liked Y."
 - Not append-only. Relations can expire (`valid_until`), weaken, or be
   explicitly deleted when they stop being true.
+
+## ⚠️ How to Actually Build Relations
+
+**This is the section most people miss — and it's the difference between
+a working memory graph and a pile of disconnected rows.**
+
+The `memory_relations` table is **not populated at write time**. Inserting
+into `curated_memories` does nothing for Y. The graph stays empty until
+you explicitly run the relation-build pass.
+
+### The Pass
+
+`extras/pgvector_backend/night_dream.py` exposes `build_relations()` — the
+nighttime hippocampus pass that:
+
+1. Walks recent `curated_memories` IDs.
+2. For each new memory, finds top-K nearest neighbors by vector similarity.
+3. Asks the housekeeper LLM (DeepSeek / equivalent) to classify each pair
+   into one of the 12 relation types from the table above.
+4. Writes safe types directly; queues review types for manual / batch judgment.
+
+This is the **only built-in path** to populate Y. If you don't run it, Y is
+empty, `graph_activate` returns nothing, and 2-hop recall is dead.
+
+### When to Run
+
+The pass is designed to run **once per day, off-peak** (typical: nightly
+01:00–04:00 local time):
+
+- Cheap enough: a few hundred new memories × top-K=5 ≈ a few thousand
+  housekeeper LLM calls. Use a cost-efficient model (DeepSeek-V3 or
+  similar small model is fine here — accuracy-per-dollar matters more
+  than top-tier reasoning quality for pair classification).
+- Frequent enough: same-day connections become available the next morning.
+- Not real-time: relation classification needs a steadier LLM than the
+  live agent; do it asynchronously.
+
+You can also trigger it incrementally after a burst of writes (e.g., from
+a `realtime_save` script), but **dedicated cron is the recommended default**.
+
+### Minimal cron
+
+```cron
+# Build Y-axis relations every night at 02:30 local
+30 2 * * * cd /opt/lmc5 && /opt/lmc5/venv/bin/python -m extras.pgvector_backend.dream_runner >> /var/log/lmc5/dream.log 2>&1
+```
+
+Wire `dream_runner` to call `NightDream.build_relations()` with your store's
+write callbacks (see the `night_dream.py` docstring for the
+`write_safe_relation` / `queue_review_relation` signatures).
+
+### How to Verify It's Actually Running
+
+```sql
+-- Recent relations? (Last 24h count should be > 0 for an active deployment.)
+SELECT count(*) FROM memory_relations
+WHERE created_at > now() - interval '24 hours';
+
+-- Which memories have NO outgoing edges? (Should be only the most recent few.)
+SELECT id, title, created_at FROM curated_memories cm
+ WHERE NOT EXISTS (
+   SELECT 1 FROM memory_relations mr
+    WHERE mr.source_id = cm.id OR mr.target_id = cm.id
+ )
+ ORDER BY id DESC LIMIT 20;
+```
+
+If the first query is `0` for a deployment older than a day, **your dream
+pass is not actually running** — check cron, check the log file, check
+that `dream_runner` was wired with the write callbacks.
+
+### Why This Bites Everyone
+
+Most people read the schema, see the `memory_relations` table, see the
+clean 12-type taxonomy, and assume "obviously this gets filled in as I
+write." It doesn't. The pattern that runs in production is:
+
+```
+write path:   realtime, cheap, no LLM  → curated_memories only
+build path:   nightly, batch, LLM-driven → memory_relations
+recall path:  realtime, reads both     → graph_activate
+```
+
+If you only wire the write path and the recall path, the recall path has
+nothing to expand from. Symptoms: vector recall works, FTS recall works,
+but `graph_expand` always returns empty and you can't figure out why. The
+answer is almost always: **you never ran the build path.**

@@ -70,7 +70,7 @@ Two equivalent ways to wire it up:
 Drop one entry per job into the VPS user's crontab:
 
 ```cron
-# nightly: consolidate, dream, decay, audit
+# nightly: consolidate, dream (incl. Y-axis relation build), decay, audit
 0 4 * * *  cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run nightly >> logs/nightly.log 2>&1
 
 # weekly narrative reflection (Mondays at 04:30 local)
@@ -82,6 +82,15 @@ Drop one entry per job into the VPS user's crontab:
 
 Schedule jobs to your **user's quiet hours**, not UTC. The whole point
 is to not collide with foreground use.
+
+> **⚠️ The nightly `dream` pass is what builds the Y relation graph
+> (`memory_relations` table).** If you skip nightly, your writes
+> accumulate but the graph stays empty — `graph_activate` returns
+> nothing and 2-hop recall is silently dead. This also breaks the
+> cross-axis connections that ride on `memory_relations` (X temporal
+> sequence, Z fact contradiction/supersession, M derivation chains).
+> See [`Y_RELATIONS.md`](Y_RELATIONS.md#-how-to-actually-build-relations)
+> for the verification SQL.
 
 ### Option B · systemd timer (recommended for production)
 

@@ -45,6 +45,19 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 [extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
 和 [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)。
 
+> **⚠️ 重要:Y 关系网不会自动生成 — 写入 ≠ 连网**
+>
+> Production 版的 `memory_relations` 表是 `graph_activate` 召回的命脉,也承载
+> **X 时序、Z 事实演化对立、M 代谢路径** 的连接(详见 [`docs/Y_RELATIONS.md`](docs/Y_RELATIONS.md))。
+> 但**关系不是写入时自动建的**——你必须周期性调度
+> [`extras/pgvector_backend/night_dream.py`](extras/pgvector_backend/night_dream.py)
+> 的关系构建流程(夜间 hippocampus 阶段),否则 `curated_memories` 只是一堆孤岛,
+> 2 跳图扩展、跨维度的因果/印证/继承链全部哑掉。
+>
+> **部署时务必把 `night_dream` 加进 cron(每日一次足够)**,详见
+> [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+> "做完代码就以为完事"是这个仓库最常见的运维洞——不是你写慢了,是没人告诉你还得跑这一步。
+
 > 接下来的章节详细介绍 minimal 实现。Production 实现的入口文档：
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)（管道层）、
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md)（六个开关）、
