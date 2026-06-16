@@ -95,14 +95,22 @@ you explicitly run the relation-build pass.
 
 ### The Pass
 
-`extras/pgvector_backend/night_dream.py` exposes `build_relations()` — the
-nighttime hippocampus pass that:
+The nighttime relation-build pass lives in
+`extras/pgvector_backend/night_dream.py` and runs **inside the `hippocampus`
+step of `dream_runner`** — there is no standalone "build relations" step in
+the pipeline. The pass does:
 
-1. Walks recent `curated_memories` IDs.
-2. For each new memory, finds top-K nearest neighbors by vector similarity.
-3. Asks the housekeeper LLM (DeepSeek / equivalent) to classify each pair
-   into one of the 12 relation types from the table above.
-4. Writes safe types directly; queues review types for manual / batch judgment.
+1. Yesterday's `conversation_chunks` are passed to the housekeeper LLM
+   proposer.
+2. The proposer outputs structured candidates: `title / content / type /
+   importance / risk / relation_hints` — the LLM commits to relation types
+   **at proposal time**, not afterward.
+3. Gate chain filters candidates: noise → safety/PII → importance threshold
+   → risk classification → batch dedup. Only promoted candidates survive.
+4. For each promoted candidate, `find_neighbors` fetches the top-K nearest
+   neighbors by vector. Relations are written using the candidate's own
+   `relation_hints`: types in `SAFE_RELATION_TYPES` become direct edges;
+   types in `REVIEW_RELATION_TYPES` go to the audit queue.
 
 This is the **only built-in path** to populate Y. If you don't run it, Y is
 empty, `graph_activate` returns nothing, and 2-hop recall is dead.
@@ -130,9 +138,12 @@ a `realtime_save` script), but **dedicated cron is the recommended default**.
 30 2 * * * cd /opt/lmc5 && /opt/lmc5/venv/bin/python -m extras.pgvector_backend.dream_runner >> /var/log/lmc5/dream.log 2>&1
 ```
 
-Wire `dream_runner` to call `NightDream.build_relations()` with your store's
-write callbacks (see the `night_dream.py` docstring for the
-`write_safe_relation` / `queue_review_relation` signatures).
+Wire `dream_runner` with at minimum `consolidate=` and `hippocampus=`
+callables. The `hippocampus` callable should drive the full
+`NightDream.run()` pipeline — proposing candidates *and* building their
+relations both happen inside that one call. See the `night_dream.py`
+docstring for the `write_candidate` / `write_safe_relation` /
+`queue_review_relation` callback signatures.
 
 ### How to Verify It's Actually Running
 

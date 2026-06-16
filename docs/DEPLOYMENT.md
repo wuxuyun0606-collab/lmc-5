@@ -38,14 +38,18 @@ A typical day on a VPS-hosted LMC-5 deployment looks like this:
 
 ```
 00:00 - 06:00   user usually offline
-  04:00 (local)  nightly housekeeper run:
-                   - archive yesterday's chunks
-                   - hippocampus: propose candidates from chunks
-                   - relation graph: name and queue Y-axis edges
-                   - Z-axis: judge contradiction pairs to audit table
-                   - M-axis: weight decay, dedup proposals, condensation
-                   - narrative timeline: weekly index if Monday
-                   - stopword learning if scheduled
+  04:00 (local)  nightly housekeeper run (`dream_runner` covers ① ② ③ ④ ⑥):
+                   ① archive yesterday's chunks (consolidate)
+                   ② hippocampus: propose candidates from chunks
+                   ③ Y-axis: write safe relations / queue review relations
+                                  (built inside ②; no separate step)
+                   ④ Z-axis: judge contradiction pairs to audit table
+                   ⑤ M-axis: weight decay, dedup, condensation
+                                  ⚠️ NOT in dream_runner — schedule separately
+                   ⑥ narrative timeline: weekly index if Monday;
+                                              monthly index first N days of month
+                   ⑦ stopword learning if scheduled
+                                  ⚠️ NOT in dream_runner — schedule separately
 06:00 - 24:00   user-facing hours
                    - foreground agent serves queries
                    - real-time write path stores raw events
@@ -70,15 +74,22 @@ Two equivalent ways to wire it up:
 Drop one entry per job into the VPS user's crontab:
 
 ```cron
-# nightly: consolidate, dream (incl. Y-axis relation build), decay, audit
-0 4 * * *  cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run nightly >> logs/nightly.log 2>&1
-
-# weekly narrative reflection (Mondays at 04:30 local)
-30 4 * * 1 cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run weekly-narrative >> logs/weekly.log 2>&1
-
-# monthly narrative (1st of the month at 05:00)
-0 5 1 * *  cd /opt/lmc5-agent && /usr/bin/env python -m lmc5 run monthly-narrative >> logs/monthly.log 2>&1
+# nightly: full dream pipeline
+#   consolidate → hippocampus (incl. Y relation build) → heartbeat
+#   → e_axis_backfill → narrative (weekly + monthly when due) → z_audit → patrol
+0 4 * * *  cd /opt/lmc5-agent && /opt/lmc5-agent/.venv/bin/python -m extras.pgvector_backend.dream_runner >> logs/nightly.log 2>&1
 ```
+
+> **What's NOT in `dream_runner`**: M-axis weight decay / dedup /
+> condensation, and stopword learning. If you want those, schedule
+> them separately (your own callables on a separate cron line, or
+> point them at `lmc5 patrol` and friends).
+>
+> **Narrative weekly/monthly are inside `dream_runner`** — its
+> `narrative_weekly` / `narrative_monthly` callables fire on the
+> right days (monthly only the first N days of the month). You do
+> **not** need separate cron entries for them unless you've
+> deliberately left those callables unset.
 
 Schedule jobs to your **user's quiet hours**, not UTC. The whole point
 is to not collide with foreground use.
@@ -107,7 +118,7 @@ After=network-online.target
 Type=oneshot
 User=lmc5
 WorkingDirectory=/opt/lmc5-agent
-ExecStart=/opt/lmc5-agent/.venv/bin/python -m lmc5 run nightly
+ExecStart=/opt/lmc5-agent/.venv/bin/python -m extras.pgvector_backend.dream_runner
 StandardOutput=append:/var/log/lmc5/nightly.log
 StandardError=append:/var/log/lmc5/nightly.log
 ```
