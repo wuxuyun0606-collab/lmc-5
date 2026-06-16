@@ -50,6 +50,24 @@ The production impl needs a PostgreSQL instance and at least one
 embedder API key — see [extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
 and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example).
 
+> **⚠️ Important: the Y relation graph is NOT built automatically — writing ≠ connecting**
+>
+> In the production impl, the `memory_relations` table is the lifeblood of
+> `graph_activate` recall, and it also carries **X temporal sequence, Z fact
+> contradiction/supersession, and M derivation chains** (see
+> [`docs/Y_RELATIONS.md`](docs/Y_RELATIONS.md)). But **relations are not
+> created at write time** — you must periodically schedule
+> [`extras/pgvector_backend/night_dream.py`](extras/pgvector_backend/night_dream.py)'s
+> relation-build phase (the nighttime hippocampus pass). Otherwise your
+> `curated_memories` is just a pile of islands: 2-hop expansion, cross-axis
+> cause/support/derivation chains all go silent.
+>
+> **In deployment, you MUST add `night_dream` to cron (once a day is enough).**
+> See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+> "I shipped the code so I'm done" is the most common operational hole in this
+> repo — not because you shipped slow, but because no one told you there's one
+> more step.
+
 > The next sections describe the minimal impl in detail. For the
 > production impl, the entry points are
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) (the pipeline),

@@ -2,11 +2,21 @@
 
 每晚跑一次，把白天积累的原始对话变成结构化记忆：
 
-    consolidate → hippocampus → heartbeat_detector → narrative(weekly)
-                                                      ↑ 每月初加 monthly
-    → z-audit → patrol
+    consolidate → hippocampus (incl. Y relation build) → heartbeat_detector
+        → e_axis_backfill → narrative_weekly → narrative_monthly (每月初)
+        → z_audit → patrol
 
 每步可选（传 None 就跳）。失败隔离——一步挂了不影响后续步骤。
+
+⚠️ 关于 Y 关系图：**关系图建在 hippocampus 这一步内部**，没有独立的 step。
+   传给 `hippocampus=` 的 callable 应该端到端调 `NightDream.run()`，它会同时
+   提议候选记忆 *和* 给 promoted 候选扩 top-K 邻居写关系——通过 propose 阶段
+   LLM 直接给的 `relation_hints`，不是事后 pair-by-pair classify。详见
+   `night_dream.py` 和 `docs/Y_RELATIONS.md`。
+
+⚠️ M 轴衰减/去重 和 stopword learning **不在 dream_runner 内**。这些步骤
+   需要单独调度（自己写 callable 或单独的 cron 行）。本文件聚焦"raw events
+   → curated memories + relations + Z 审计 + 叙事索引"主流程。
 
 用法：
     # 最小配置：只跑 consolidate + hippocampus
