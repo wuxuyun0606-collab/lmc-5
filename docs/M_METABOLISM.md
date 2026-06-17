@@ -117,8 +117,13 @@ patrol reports candidates; the AI or user decides whether to condense.
   unresolved conflicts
 - **Thread splits:** A thread has grown too large and should be split
 - **Decay candidates:** Memories below threshold, ready for cold storage
-- **Orphaned relations:** Edges where one endpoint is `superseded` or
-  `archived`
+- **Stale/non-live relations:** Edges touching `superseded`, `archived`,
+  `review`, or inactive fact memories
+- **Orphaned relations:** Edges pointing at missing memories, usually from
+  legacy/manual database edits
+- **Relation self-loops:** A memory connected to itself
+- **Reciprocal duplicate relations:** Symmetric relation types stored twice as
+  both A→B and B→A
 
 Patrol **never writes**. It reports. The dream runner or a human acts on
 the report.

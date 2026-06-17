@@ -78,6 +78,24 @@ def test_z_audit_uses_contradicts_relations_as_candidates(tmp_path):
     assert result.candidates[0]["right_memory_id"] == right.id
 
 
+def test_z_audit_ignores_contradicts_relations_with_non_live_endpoints(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        current, _ = store.add_memory(title="Policy A", content="Use path A.")
+        inactive, _ = store.add_memory(
+            title="Inactive policy",
+            content="Use the inactive path.",
+            fact_key="agent.inactive_path",
+            active_fact=False,
+        )
+        store.add_relation(current.id, inactive.id, "contradicts", strength=0.9)
+
+        result = run_z_audit(store, apply=False)
+
+    assert result.candidates_seen == 0
+
+
 def test_patrol_reports_pending_z_audits(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:

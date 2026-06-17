@@ -1,3 +1,5 @@
+import pytest
+
 from lmc5.store import MemoryStore
 
 
@@ -36,6 +38,74 @@ def test_current_fact_supersedes_previous_fact(tmp_path):
     assert new_after.active_fact is True
 
 
+def test_recall_only_returns_live_current_memories(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        review, _ = store.add_memory(
+            title="Review endpoint",
+            content="Pending endpoint note.",
+            status="review",
+        )
+        historical, _ = store.add_memory(
+            title="Historical endpoint",
+            content="Historical endpoint note.",
+            status="historical",
+        )
+        archived, _ = store.add_memory(
+            title="Archived endpoint",
+            content="Archived endpoint note.",
+            status="archived",
+        )
+        inactive, _ = store.add_memory(
+            title="Inactive endpoint",
+            content="Inactive endpoint note.",
+            fact_key="service.inactive_endpoint",
+            active_fact=False,
+        )
+        old, _ = store.add_memory(
+            title="Old endpoint",
+            content="Retired endpoint value.",
+            fact_key="service.endpoint",
+        )
+        current, _ = store.add_memory(
+            title="Current endpoint",
+            content="Current endpoint value.",
+            fact_key="service.endpoint",
+        )
+
+        rows = store.recall("endpoint", limit=10)
+
+    ids = {row["id"] for row in rows}
+    assert current.id in ids
+    assert review.id not in ids
+    assert historical.id not in ids
+    assert archived.id not in ids
+    assert inactive.id not in ids
+    assert old.id not in ids
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("valence", -1.1),
+        ("valence", 1.1),
+        ("arousal", -0.1),
+        ("arousal", 1.1),
+        ("tension", -0.1),
+        ("tension", 1.1),
+        ("confidence", -0.1),
+        ("confidence", 1.1),
+    ],
+)
+def test_add_memory_validates_e_axis_ranges(tmp_path, field, value):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        with pytest.raises(ValueError, match=field):
+            store.add_memory(title="Bad E axis", content="Out of range.", **{field: value})
+
+
 def test_recall_redacts_output(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:
@@ -54,7 +124,7 @@ def test_recall_redacts_output(tmp_path):
     assert "postgresql://[REDACTED_DSN]" in rows[0]["content"]
 
 
-def test_recall_expands_one_hop_relations(tmp_path):
+def test_recall_expands_one_hop_safe_relations(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:
         store.init()
@@ -69,7 +139,7 @@ def test_recall_expands_one_hop_relations(tmp_path):
             content="After rollback, verify logs, metrics, and user-facing behavior.",
             thread="engineering",
         )
-        store.add_relation(anchor.id, related.id, "supports", reason="verification supports rollback")
+        store.add_relation(anchor.id, related.id, "same_topic", reason="verification supports rollback")
 
         rows = store.recall("deployment", limit=2)
 
@@ -114,7 +184,7 @@ def test_recall_expands_two_hop_relations_with_decay(tmp_path):
     assert second_row["reasons"] == [f"related:2:same_topic:{first_hop.id}"]
 
 
-def test_recall_weights_relation_types(tmp_path):
+def test_recall_does_not_auto_expand_review_relations(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:
         store.init()
@@ -138,11 +208,131 @@ def test_recall_weights_relation_types(tmp_path):
 
         rows = store.recall("deployment", limit=3)
 
+    ids = [row["id"] for row in rows]
     same_topic_row = next(row for row in rows if row["id"] == same_topic.id)
-    contradiction_row = next(row for row in rows if row["id"] == contradiction.id)
-    assert same_topic_row["relation_score"] > contradiction_row["relation_score"]
+    assert contradiction.id not in ids
     assert same_topic_row["reasons"] == [f"related:1:same_topic:{anchor.id}"]
-    assert contradiction_row["reasons"] == [f"related:1:contradicts:{anchor.id}"]
+
+
+def test_recall_does_not_expand_archived_superseded_or_inactive_fact_targets(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        anchor, _ = store.add_memory(
+            title="Deployment rollback policy",
+            content="Always define rollback before deployment.",
+            thread="safety",
+        )
+        archived, _ = store.add_memory(
+            title="Archived rollback note",
+            content="Old archived rollback note.",
+            status="archived",
+        )
+        old_fact, _ = store.add_memory(
+            title="Old endpoint",
+            content="Use the old endpoint.",
+            fact_key="service.endpoint",
+        )
+        store.add_memory(
+            title="New endpoint",
+            content="Use the new endpoint.",
+            fact_key="service.endpoint",
+        )
+        inactive_fact, _ = store.add_memory(
+            title="Inactive endpoint",
+            content="Use the inactive endpoint.",
+            fact_key="service.inactive_endpoint",
+            active_fact=False,
+        )
+        store.add_relation(anchor.id, archived.id, "same_topic", strength=1.0)
+        store.add_relation(anchor.id, old_fact.id, "same_topic", strength=1.0)
+        store.add_relation(anchor.id, inactive_fact.id, "same_topic", strength=1.0)
+
+        rows = store.recall("deployment", limit=5)
+
+    ids = [row["id"] for row in rows]
+    assert archived.id not in ids
+    assert old_fact.id not in ids
+    assert inactive_fact.id not in ids
+
+
+def test_recall_respects_relation_strength_thresholds(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        anchor, _ = store.add_memory(
+            title="Deployment rollback policy",
+            content="Always define rollback before deployment.",
+        )
+        weak_first_hop, _ = store.add_memory(
+            title="Weakly related note",
+            content="This should not surface through a weak edge.",
+        )
+        strong_first_hop, _ = store.add_memory(
+            title="Strong relation note",
+            content="Strong first hop.",
+        )
+        weak_second_hop, _ = store.add_memory(
+            title="Weak second hop",
+            content="This should not surface through a weak second hop.",
+        )
+        store.add_relation(anchor.id, weak_first_hop.id, "same_topic", strength=0.4)
+        store.add_relation(anchor.id, strong_first_hop.id, "same_topic", strength=1.0)
+        store.add_relation(strong_first_hop.id, weak_second_hop.id, "same_topic", strength=0.7)
+
+        rows = store.recall("deployment", limit=5)
+
+    ids = [row["id"] for row in rows]
+    assert strong_first_hop.id in ids
+    assert weak_first_hop.id not in ids
+    assert weak_second_hop.id not in ids
+
+
+def test_relation_type_docs_are_accepted_and_contradiction_alias_is_canonical(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        first, _ = store.add_memory(title="First", content="A")
+        second, _ = store.add_memory(title="Second", content="B")
+        relation = store.add_relation(first.id, second.id, "in_thread")
+        contradiction = store.add_relation(first.id, second.id, "contradiction")
+
+    assert relation.relation_type == "in_thread"
+    assert contradiction.relation_type == "contradicts"
+
+
+def test_symmetric_relations_are_canonicalized_but_directional_relations_are_not(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        first, _ = store.add_memory(title="First", content="A")
+        second, _ = store.add_memory(title="Second", content="B")
+
+        forward = store.add_relation(first.id, second.id, "same_topic")
+        reverse = store.add_relation(second.id, first.id, "same_topic")
+        directional = store.add_relation(second.id, first.id, "derived_from")
+
+        relations = store.list_relations()
+
+    assert forward.id == reverse.id
+    assert reverse.source_id == first.id
+    assert reverse.target_id == second.id
+    assert directional.source_id == second.id
+    assert directional.target_id == first.id
+    assert len(relations) == 2
+
+
+def test_add_relation_validates_strength_range(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        first, _ = store.add_memory(title="First", content="A")
+        second, _ = store.add_memory(title="Second", content="B")
+
+        with pytest.raises(ValueError, match="strength"):
+            store.add_relation(first.id, second.id, "same_topic", strength=-0.1)
+        with pytest.raises(ValueError, match="strength"):
+            store.add_relation(first.id, second.id, "same_topic", strength=1.1)
 
 
 def test_list_relations_filters_by_memory(tmp_path):

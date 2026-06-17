@@ -6,7 +6,7 @@ import json
 import sqlite3
 from collections import Counter, defaultdict
 
-from .models import MetabolismSuggestion
+from .models import MetabolismSuggestion, SYMMETRIC_RELATION_TYPES
 
 
 def patrol(conn: sqlite3.Connection, *, split_threshold: int = 5) -> list[MetabolismSuggestion]:
@@ -68,6 +68,100 @@ def patrol(conn: sqlite3.Connection, *, split_threshold: int = 5) -> list[Metabo
                 action="mark_review",
                 severity="warning",
                 reason=f"{len(z_pending_rows)} Z-axis conflict audits are pending",
+                memory_ids=sorted(set(memory_ids)),
+            )
+        )
+
+    stale_relation_rows = conn.execute(
+        """
+        SELECT r.source_id, r.target_id
+          FROM relations r
+          JOIN memories source ON source.id = r.source_id
+          JOIN memories target ON target.id = r.target_id
+         WHERE source.status != 'current'
+            OR target.status != 'current'
+            OR (source.fact_key IS NOT NULL AND source.active_fact = 0)
+            OR (target.fact_key IS NOT NULL AND target.active_fact = 0)
+         ORDER BY r.created_at DESC, r.id DESC
+        """
+    ).fetchall()
+    if stale_relation_rows:
+        memory_ids: list[int] = []
+        for row in stale_relation_rows[:10]:
+            memory_ids.extend([int(row["source_id"]), int(row["target_id"])])
+        suggestions.append(
+            MetabolismSuggestion(
+                action="mark_review",
+                severity="warning",
+                reason=(
+                    f"{len(stale_relation_rows)} relations touch non-live memories "
+                    "and should be reviewed or expired"
+                ),
+                memory_ids=sorted(set(memory_ids)),
+            )
+        )
+
+    orphan_relation_rows = conn.execute(
+        """
+        SELECT r.source_id, r.target_id
+          FROM relations r
+          LEFT JOIN memories source ON source.id = r.source_id
+          LEFT JOIN memories target ON target.id = r.target_id
+         WHERE source.id IS NULL OR target.id IS NULL
+         ORDER BY r.created_at DESC, r.id DESC
+        """
+    ).fetchall()
+    if orphan_relation_rows:
+        memory_ids: list[int] = []
+        for row in orphan_relation_rows[:10]:
+            memory_ids.extend([int(row["source_id"]), int(row["target_id"])])
+        suggestions.append(
+            MetabolismSuggestion(
+                action="mark_review",
+                severity="critical",
+                reason=f"{len(orphan_relation_rows)} orphaned relations point at missing memories",
+                memory_ids=sorted(set(memory_ids)),
+            )
+        )
+
+    self_loop_rows = conn.execute(
+        "SELECT source_id FROM relations WHERE source_id = target_id ORDER BY id DESC"
+    ).fetchall()
+    if self_loop_rows:
+        suggestions.append(
+            MetabolismSuggestion(
+                action="mark_review",
+                severity="critical",
+                reason=f"{len(self_loop_rows)} relation self-loops should be removed",
+                memory_ids=[int(row["source_id"]) for row in self_loop_rows[:20]],
+            )
+        )
+
+    symmetric_types = sorted(SYMMETRIC_RELATION_TYPES)
+    placeholders = ", ".join("?" for _ in symmetric_types)
+    reciprocal_rows = conn.execute(
+        f"""
+        SELECT r1.source_id, r1.target_id
+          FROM relations r1
+          JOIN relations r2
+            ON r1.source_id = r2.target_id
+           AND r1.target_id = r2.source_id
+           AND r1.relation_type = r2.relation_type
+           AND r1.id < r2.id
+         WHERE r1.relation_type IN ({placeholders})
+         ORDER BY r1.id DESC
+        """,
+        symmetric_types,
+    ).fetchall()
+    if reciprocal_rows:
+        memory_ids: list[int] = []
+        for row in reciprocal_rows[:10]:
+            memory_ids.extend([int(row["source_id"]), int(row["target_id"])])
+        suggestions.append(
+            MetabolismSuggestion(
+                action="mark_review",
+                severity="warning",
+                reason=f"{len(reciprocal_rows)} reciprocal duplicate symmetric relations found",
                 memory_ids=sorted(set(memory_ids)),
             )
         )

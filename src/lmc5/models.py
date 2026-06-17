@@ -18,6 +18,10 @@ RelationType = Literal[
     "same_topic",
     "temporal_sequence",
     "emotional_link",
+    "in_thread",
+    "same_person",
+    "in_episode",
+    "instance_of",
     "cause_effect",
     "supports",
     "contradicts",
@@ -53,10 +57,47 @@ RELATION_TYPES = {
     "same_topic",
     "temporal_sequence",
     "emotional_link",
+    "in_thread",
+    "same_person",
+    "in_episode",
+    "instance_of",
     "cause_effect",
     "supports",
     "contradicts",
     "derived_from",
+}
+SAFE_RELATION_TYPES = {
+    "same_issue",
+    "same_project",
+    "same_tool",
+    "same_event",
+    "same_topic",
+    "temporal_sequence",
+    "emotional_link",
+    "in_thread",
+    "same_person",
+    "in_episode",
+    "instance_of",
+    "derived_from",
+}
+REVIEW_RELATION_TYPES = {"contradicts", "cause_effect", "supports"}
+SYMMETRIC_RELATION_TYPES = {
+    "same_issue",
+    "same_project",
+    "same_tool",
+    "same_event",
+    "same_topic",
+    "emotional_link",
+    "in_thread",
+    "same_person",
+    "in_episode",
+    "instance_of",
+    "contradicts",
+}
+RELATION_TYPE_ALIASES = {
+    # The public Y-axis docs call this edge "contradiction"; the core schema
+    # historically stored it as "contradicts". Keep the DB canonical stable.
+    "contradiction": "contradicts",
 }
 
 
@@ -214,6 +255,11 @@ class RecallHit:
         data["reasons"] = self.reasons
         data["related_from"] = self.related_from
         return data
+
+
+def normalize_relation_type(value: str) -> str:
+    clean = str(value).strip()
+    return RELATION_TYPE_ALIASES.get(clean, clean)
 
 
 def validate_choice(name: str, value: str, allowed: set[str]) -> str:

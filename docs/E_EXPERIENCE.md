@@ -28,6 +28,11 @@ Every curated memory can carry emotional coordinates:
 These are scored by `e_axis_scorer.py` — a provider-agnostic LLM scorer
 that reads the memory content and outputs a JSON rating.
 
+The minimal core enforces the numeric ranges at write time through
+`MemoryStore.add_memory()`: `valence` must be between `-1.0` and `1.0`, while
+`arousal`, `tension`, and `confidence` must be between `0.0` and `1.0`.
+Scorers may be noisy; the store should not be.
+
 ### 2. Real-Time Detection (what is happening right now)
 
 `heartbeat_trigger.py` detects emotional moments in live conversation.
@@ -267,3 +272,5 @@ The label is ours to observe, not the AI's to perform.
   individual memories with their emotional context.
 - Not required for recall. Memories without E scores still surface via
   vector, FTS, and graph. E adds emotional depth, not gatekeeping.
+- Not a place to store unbounded model guesses. Numeric E fields must stay
+  inside their documented ranges.

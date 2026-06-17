@@ -78,9 +78,10 @@ housekeeper labels the relation type (`same_topic`, `temporal_sequence`,
 `cause_effect`, `emotional_link`, ...) and a confidence strength
 (0.0–1.0).
 
-Safe relation types auto-write; risky types (`contradiction`,
-`cause_effect`, `supports`) queue for review. Same pattern: the
-housekeeper proposes, LMC-5 gates.
+Safe relation types auto-write; risky types (`contradicts`,
+`cause_effect`, `supports`) queue for review. `contradiction` is accepted
+as a compatibility alias, but new code should emit the canonical
+`contradicts`. Same pattern: the housekeeper proposes, LMC-5 gates.
 
 ### 4. M-Axis · Deduplication, Condensation, Decay
 

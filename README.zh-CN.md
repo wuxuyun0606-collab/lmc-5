@@ -106,11 +106,27 @@ surface()        -> 从两层里取出脱敏后的上下文
 - **fact-key supersession**：保留旧事实，但不让旧事实继续冒充当前事实。
 - **Z 轴冲突审计**：把 contradiction 候选先放进 pending review，不自动 supersede。
 - **体验信号**：风险、紧急度、张力和回应姿态。
-- **只读代谢巡检**：检查重复 current facts、review 堆积和拆线候选。
+- **只读代谢巡检**：检查重复 current facts、review 堆积、拆线候选和关系卫生问题。
 - **脱敏工具**：用于 recall 输出和 embedding 输入。
 - **JSONL 导入/导出**：方便迁移。
 - **CLI 和 Python API**：核心不需要联网。
 - **`doctor` 检查**：确认本地 SQLite / FTS 能力。
+
+## 实现契约
+
+文档不是摆设。只要改某一条轴，就必须在同一个 patch 里同步代码和测试：
+
+- **X：** thread/status 是生命周期元数据；`other` 是孵化区，不是垃圾桶。
+- **Y：** 关系类型以 `src/lmc5/models.py` 为准；默认图扩展只走安全关系、有效端点和足够强的边。
+- **Z：** recall 只返回 `current` 记忆；带 `fact_key` 的事实还必须是 `active_fact=1`。冲突先进入 pending audit，不直接改事实。
+- **E：** `MemoryStore.add_memory()` 会校验数值型 E 轴范围，scorer 不能悄悄把脏分数写进库。
+- **M：** patrol 只读，只报告生命周期/关系风险，不偷偷修库。
+
+改完轴相关逻辑，至少跑：
+
+```bash
+PYTHONPATH=src python3 -m pytest tests
+```
 
 ## 给谁用？
 
@@ -327,7 +343,9 @@ with MemoryStore("agent.sqlite") as store:
         content="Verify logs, metrics, and user-facing behavior after deployment.",
         thread="engineering",
     )
-    store.add_relation(policy.id, checklist.id, "supports")
+    # 默认图扩展使用安全关系。supports/contradicts/cause_effect 这类
+    # review 关系应留给审计流程，不要当普通召回边。
+    store.add_relation(policy.id, checklist.id, "same_topic")
 
     hits = store.recall("production", limit=3)
 ```

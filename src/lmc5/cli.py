@@ -12,6 +12,7 @@ from .consolidation import consolidate_events
 from .fact_evolution import run_z_audit
 from .hippocampus import run_hippocampus
 from .metabolism import patrol
+from .models import RELATION_TYPES
 from .redact import redact_obj
 from .store import MemoryStore
 from .vector import toy_embed
@@ -346,19 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_relate.add_argument(
         "--type",
         required=True,
-        choices=[
-            "same_issue",
-            "same_project",
-            "same_tool",
-            "same_event",
-            "same_topic",
-            "temporal_sequence",
-            "emotional_link",
-            "cause_effect",
-            "supports",
-            "contradicts",
-            "derived_from",
-        ],
+        choices=sorted(RELATION_TYPES | {"contradiction"}),
     )
     p_relate.add_argument("--strength", type=float, default=1.0)
     p_relate.add_argument("--reason", default="")

@@ -14,7 +14,9 @@ from .models import (
     EVENT_ROLES,
     FACT_STATUSES,
     RELATION_TYPES,
+    SAFE_RELATION_TYPES,
     RISK_LEVELS,
+    SYMMETRIC_RELATION_TYPES,
     URGENCY_LEVELS,
     VECTOR_OWNER_TYPES,
     EventRecord,
@@ -22,6 +24,7 @@ from .models import (
     RecallHit,
     RelationRecord,
     VectorRecord,
+    normalize_relation_type,
     validate_choice,
 )
 from .redact import redact_obj
@@ -74,6 +77,10 @@ RELATION_TYPE_WEIGHTS = {
     "same_project": 0.9,
     "same_issue": 0.85,
     "same_tool": 0.75,
+    "in_thread": 0.8,
+    "same_person": 0.78,
+    "in_episode": 0.78,
+    "instance_of": 0.72,
     "derived_from": 0.7,
     "supports": 0.6,
     "temporal_sequence": 0.55,
@@ -82,6 +89,8 @@ RELATION_TYPE_WEIGHTS = {
     "contradicts": 0.25,
 }
 RELATION_DEPTH_WEIGHTS = {1: 0.35, 2: 0.16}
+RELATION_MIN_STRENGTH = {1: 0.4, 2: 0.7}
+LIVE_MEMORY_SQL = "status = 'current' AND (fact_key IS NULL OR active_fact = 1)"
 
 
 def _relation_score(relation_type: str, strength: float, *, depth: int) -> float:
@@ -89,6 +98,13 @@ def _relation_score(relation_type: str, strength: float, *, depth: int) -> float
     type_weight = RELATION_TYPE_WEIGHTS.get(relation_type, 0.5)
     depth_weight = RELATION_DEPTH_WEIGHTS.get(depth, 0.0)
     return bounded_strength * type_weight * depth_weight
+
+
+def _validate_optional_range(name: str, value: float | None, minimum: float, maximum: float) -> None:
+    if value is None:
+        return
+    if not minimum <= float(value) <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
 
 
 def _row_to_memory(row: sqlite3.Row) -> MemoryRecord:
@@ -367,6 +383,10 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         validate_choice("status", status, FACT_STATUSES)
         validate_choice("risk_level", risk_level, RISK_LEVELS)
         validate_choice("urgency", urgency, URGENCY_LEVELS)
+        _validate_optional_range("valence", valence, -1.0, 1.0)
+        _validate_optional_range("arousal", arousal, 0.0, 1.0)
+        _validate_optional_range("tension", tension, 0.0, 1.0)
+        _validate_optional_range("confidence", confidence, 0.0, 1.0)
         if not title.strip():
             raise ValueError("title is required")
         if not content.strip():
@@ -465,9 +485,13 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         strength: float = 1.0,
         reason: str = "",
     ) -> RelationRecord:
+        relation_type = normalize_relation_type(relation_type)
         validate_choice("relation_type", relation_type, RELATION_TYPES)
         if source_id == target_id:
             raise ValueError("relation source and target must differ")
+        _validate_optional_range("strength", strength, 0.0, 1.0)
+        if relation_type in SYMMETRIC_RELATION_TYPES and source_id > target_id:
+            source_id, target_id = target_id, source_id
         cur = self.conn.execute(
             """
             INSERT OR IGNORE INTO relations (source_id, target_id, relation_type, strength, reason)
@@ -935,7 +959,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         terms = [term.strip() for term in query.split() if term.strip()]
         if not terms:
             rows = self.conn.execute(
-                "SELECT * FROM memories WHERE status != 'archived' ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM memories WHERE {LIVE_MEMORY_SQL} ORDER BY created_at DESC LIMIT ?",
                 (limit * 3,),
             ).fetchall()
             return [(_row_to_memory(row), 0.0, ["recent"]) for row in rows]
@@ -946,10 +970,11 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             rows = self.conn.execute(
                 """
                 SELECT m.*, bm25(memories_fts) AS rank
-                  FROM memories_fts
-                  JOIN memories m ON m.id = memories_fts.rowid
+                 FROM memories_fts
+                 JOIN memories m ON m.id = memories_fts.rowid
                  WHERE memories_fts MATCH ?
-                   AND m.status != 'archived'
+                   AND m.status = 'current'
+                   AND (m.fact_key IS NULL OR m.active_fact = 1)
                  ORDER BY rank
                  LIMIT ?
                 """,
@@ -977,7 +1002,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             rows = self.conn.execute(
                 f"""
                 SELECT * FROM memories
-                 WHERE status != 'archived'
+                 WHERE {LIVE_MEMORY_SQL}
                    AND {' AND '.join(clauses)}
                  LIMIT ?
                 """,
@@ -1004,11 +1029,24 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             placeholders = ", ".join("?" for _ in frontier)
             rows = self.conn.execute(
                 f"""
-                SELECT source_id, target_id, relation_type, strength
-                  FROM relations
-                 WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
+                SELECT r.source_id, r.target_id, r.relation_type, r.strength
+                  FROM relations r
+                  JOIN memories source ON source.id = r.source_id
+                  JOIN memories target ON target.id = r.target_id
+                 WHERE (r.source_id IN ({placeholders}) OR r.target_id IN ({placeholders}))
+                   AND r.relation_type IN ({", ".join("?" for _ in SAFE_RELATION_TYPES)})
+                   AND r.strength > ?
+                   AND source.status = 'current'
+                   AND target.status = 'current'
+                   AND (source.fact_key IS NULL OR source.active_fact = 1)
+                   AND (target.fact_key IS NULL OR target.active_fact = 1)
                 """,
-                (*frontier, *frontier),
+                (
+                    *frontier,
+                    *frontier,
+                    *sorted(SAFE_RELATION_TYPES),
+                    RELATION_MIN_STRENGTH[depth],
+                ),
             ).fetchall()
             next_frontier: set[int] = set()
             for row in rows:

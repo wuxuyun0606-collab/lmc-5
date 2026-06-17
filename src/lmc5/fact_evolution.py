@@ -139,12 +139,14 @@ def find_z_conflict_candidates(
             SELECT r.source_id AS left_id,
                    r.target_id AS right_id,
                    COALESCE(m1.fact_key, m2.fact_key) AS fact_key
-              FROM relations r
-              JOIN memories m1 ON m1.id = r.source_id
-              JOIN memories m2 ON m2.id = r.target_id
+             FROM relations r
+             JOIN memories m1 ON m1.id = r.source_id
+             JOIN memories m2 ON m2.id = r.target_id
              WHERE r.relation_type = 'contradicts'
-               AND m1.status != 'archived'
-               AND m2.status != 'archived'
+               AND m1.status IN ('current', 'review')
+               AND m2.status IN ('current', 'review')
+               AND (m1.fact_key IS NULL OR m1.active_fact = 1)
+               AND (m2.fact_key IS NULL OR m2.active_fact = 1)
                {existing_relation_clause}
              ORDER BY r.created_at DESC, r.id DESC
              LIMIT ?

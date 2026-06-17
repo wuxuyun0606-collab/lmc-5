@@ -21,6 +21,12 @@ Every curated memory has a `version_status` field. Only `current` memories
 participate in recall. The rest are preserved — you can always look back —
 but they don't influence behavior.
 
+In the minimal SQLite core this is enforced on every recall path: recent
+fallback, FTS search, LIKE fallback, and Y graph expansion all filter to live
+memories. If a memory has a `fact_key`, it must also be `active_fact=1` before
+it can surface in normal recall. Historical and superseded facts are still in
+the database for audit, but they do not quietly leak back into behavior.
+
 ### Supersession via fact_key
 
 A `fact_key` is a unique identifier for a fact slot. Example:
@@ -65,7 +71,9 @@ z_conflict_audits.status = 'pending'  (default — always)
 ```
 
 1. Z-audit discovers candidate conflicts (same `fact_key`, `contradicts`
-   relation, or semantic overlap with opposite valence).
+   relation, or semantic overlap with opposite valence). Explicit relation
+   audits only consider live `current` or `review` endpoints, not archived or
+   superseded history.
 2. Candidates land in `z_conflict_audits` as `pending`.
 3. Nothing happens to the memories themselves.
 4. A human or a carefully-prompted LLM reviews each pending audit and

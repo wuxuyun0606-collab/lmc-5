@@ -8,10 +8,13 @@ A memory in isolation is a data point. A memory connected to other memories
 is a thought. Y answers: **what does this remind me of, support, contradict,
 or explain?**
 
-## Relation Types (12)
+## Relation Types
 
 | Type | Meaning | Safety | Example |
 |------|---------|--------|---------|
+| `same_issue` | Same problem or bug family | safe | Two fixes for the same failing command |
+| `same_project` | Same project or repository | safe | Memories from the same codebase |
+| `same_tool` | Same tool or runtime | safe | Two notes about Claude Code hooks |
 | `same_event` | Two memories about the same incident | safe | Two accounts of the same debugging session |
 | `same_topic` | Thematically related | safe | Multiple memories about API key management |
 | `temporal_sequence` | A happened before/after B | safe | Setup → deployment → rollback sequence |
@@ -22,13 +25,17 @@ or explain?**
 | `in_episode` | Part of the same scene/episode | safe | All memories from "the night of the jasmine tea" |
 | `instance_of` | Specific instance of a general pattern | safe | "She said 'forget it' on June 3" → general pattern "she says 'forget it' when suppressing" |
 | `supports` | A provides evidence for B | review | A correction that validates an existing rule |
-| `contradiction` | A and B disagree on a fact | review | "She likes mornings" vs "She hates mornings" |
+| `contradicts` | A and B disagree on a fact | review | "She likes mornings" vs "She hates mornings" |
 | `cause_effect` | A caused or led to B | review | A broken promise that led to a trust conversation |
+
+`contradiction` is accepted as a compatibility alias and stored as the
+canonical `contradicts` relation type.
 
 ### Safe vs Review
 
-Safe relations can be auto-created by the dream pass. Review relations
-enter a queue and wait for manual or LLM-assisted judgment.
+Safe relations can be auto-created by the dream pass and can participate in
+default graph expansion. Review relations enter a queue and wait for manual or
+LLM-assisted judgment; they do not auto-expand through normal recall.
 
 Why the split? Because `contradicts` is the most dangerous edge in a
 persona's memory. Auto-creating a contradiction edge between "she likes
@@ -56,9 +63,13 @@ a strong connection to be worth surfacing.
 ### Walk Rules
 
 - **Bidirectional.** source→target and target→source both count.
-- **Only live edges.** `valid_until IS NULL` — expired edges don't walk.
-- **Only live endpoints.** `version_status = 'current'` — superseded
-  memories don't surface through graph walk.
+- **Only live edges.** Production pgvector deployments check
+  `valid_until IS NULL` — expired edges don't walk. The minimal SQLite core
+  does not store `valid_until`; use review/patrol or your backend to retire
+  edges that should stop walking.
+- **Only live endpoints.** Minimal core requires `status = 'current'`; fact
+  memories must also have `active_fact = 1`. Superseded, archived, review,
+  and inactive fact memories don't surface through graph walk.
 - **Only safe relation types.** Review relations (`contradicts`,
   `cause_effect`, `supports`) don't auto-expand — they need explicit handling.
 - **Hub avoidance.** Nodes of type `thread` or `concept` have high degree
@@ -74,6 +85,24 @@ related (two different dinners), or moderately similar but strongly related
 
 Strength is initially set by the creator (LLM proposer or manual) and can
 be adjusted by metabolism over time.
+
+The minimal core validates `strength` at write time and uses stricter hop-2
+thresholds because noise compounds across graph expansion.
+
+### Implementation Checklist
+
+If you add, rename, or reclassify a relation type, update all of these in the
+same patch:
+
+- `src/lmc5/models.py`: `RELATION_TYPES`, safe/review classification,
+  symmetric classification, and aliases.
+- CLI/API entry points: they should import the shared model constants instead
+  of copying a stale list.
+- `src/lmc5/hippocampus.py`: relation hints must normalize aliases and route
+  safe versus review relations correctly.
+- Tests: cover accepted types, review types not auto-expanding, strength
+  thresholds, live endpoint filtering, and symmetric duplicate prevention.
+- Docs: this file plus README examples.
 
 ## What Y Is Not
 

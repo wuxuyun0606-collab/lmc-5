@@ -122,11 +122,34 @@ This repository provides a compact Python reference implementation with:
 - **Z-axis conflict audit** so contradiction candidates enter pending review
   instead of auto-superseding facts.
 - **Experience signals** for risk, urgency, tension, and response posture.
-- **Read-only metabolism patrols** for duplicate facts, review backlog, and thread-split candidates.
+- **Read-only metabolism patrols** for duplicate facts, review backlog,
+  thread-split candidates, and relation hygiene issues.
 - **Redaction helpers** for recall output and embedding input.
 - **JSONL import/export** for simple portability.
 - **CLI and Python API** with no network calls in the core.
 - **`doctor` checks** for local SQLite/FTS capability.
+
+## Implementation Contracts
+
+The docs are not just taxonomy. If you change an axis, update the code and
+tests in the same patch:
+
+- **X:** thread/status fields are durable lifecycle metadata; `other` is an
+  incubator, not a trash bucket.
+- **Y:** relation types live in `src/lmc5/models.py`; default graph expansion
+  only walks safe relations, live endpoints, and strong enough edges.
+- **Z:** recall returns only `current` memories, and fact memories must also be
+  `active_fact=1`; conflicts become pending audits before any mutation.
+- **E:** `MemoryStore.add_memory()` validates numeric E-axis ranges at write
+  time, so scorers cannot silently poison the store.
+- **M:** patrol is read-only and must report lifecycle/relation hazards instead
+  of fixing them silently.
+
+Before shipping an axis change, run:
+
+```bash
+PYTHONPATH=src python3 -m pytest tests
+```
 
 ## Who Is It For?
 
@@ -365,7 +388,9 @@ with MemoryStore("agent.sqlite") as store:
         content="Verify logs, metrics, and user-facing behavior after deployment.",
         thread="engineering",
     )
-    store.add_relation(policy.id, checklist.id, "supports")
+    # Use a safe relation for default graph expansion. Review relations such
+    # as supports/contradicts/cause_effect are kept for audit workflows.
+    store.add_relation(policy.id, checklist.id, "same_topic")
 
     hits = store.recall("production", limit=3)
 ```

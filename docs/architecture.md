@@ -31,6 +31,10 @@ Relations connect memories into a graph. The reference implementation supports:
 - `same_tool`
 - `same_event`
 - `same_topic`
+- `in_thread`
+- `same_person`
+- `in_episode`
+- `instance_of`
 - `temporal_sequence`
 - `emotional_link`
 - `cause_effect`
@@ -41,8 +45,14 @@ Relations connect memories into a graph. The reference implementation supports:
 Relations are used for explanation and future expansion. Recall performs
 two-hop graph expansion from initially matched memories. Each edge score is
 weighted by relation type and then decayed by distance, so a close
-`same_topic` or `same_event` edge can surface strongly while a distant or
-high-risk `contradicts` edge stays visible but weaker.
+`same_topic` or `same_event` edge can surface strongly. Review relations such
+as `contradicts`, `cause_effect`, and `supports` stay out of default graph
+expansion and should be handled by audit/review flows.
+
+The core graph walk is deliberately constrained: it expands only safe relation
+types, live endpoints, and relation strengths above the hop threshold. This
+keeps archived/superseded memories and low-confidence cross-line guesses from
+leaking back into normal recall.
 
 Nightly hippocampus jobs should only auto-apply low-risk relation types such as
 `same_topic`, `same_event`, `temporal_sequence`, and `derived_from`.
@@ -149,6 +159,7 @@ The minimal recall flow is:
 query
   -> SQLite FTS5 text match
   -> LIKE fallback when FTS is unavailable or sparse
+  -> live-memory filter
   -> two-hop typed relation expansion
   -> status/risk/recency/experience scoring
   -> redacted output

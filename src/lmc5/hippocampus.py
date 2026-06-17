@@ -15,21 +15,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import RELATION_TYPES
+from .models import (
+    RELATION_TYPES,
+    REVIEW_RELATION_TYPES,
+    SAFE_RELATION_TYPES,
+    normalize_relation_type,
+)
 from .redact import redact_obj
 from .store import MemoryStore
 
-SAFE_RELATION_TYPES = {
-    "same_issue",
-    "same_project",
-    "same_tool",
-    "same_event",
-    "same_topic",
-    "temporal_sequence",
-    "emotional_link",
-    "derived_from",
-}
-REVIEW_RELATION_TYPES = {"contradicts", "cause_effect", "supports"}
 DEFAULT_REJECT_PATTERNS = (
     re.compile(r"\b(api[_-]?key|secret|token|password|passwd|private[_-]?key)\b", re.I),
     re.compile(r"\bpostgres(?:ql)?://[^\s]+", re.I),
@@ -285,7 +279,7 @@ def _safe_relation_plans(
             break
 
         for hint in candidate.relation_hints:
-            relation_type = str(hint.get("relation_type", "")).strip()
+            relation_type = normalize_relation_type(str(hint.get("relation_type", "")))
             if relation_type not in RELATION_TYPES:
                 continue
             target_id = hint.get("target_id")
