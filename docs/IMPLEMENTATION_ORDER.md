@@ -34,6 +34,7 @@ Definition of done:
 - `pytest` passes locally.
 - `lmc5 doctor` reports usable SQLite/FTS capability.
 - `examples/demo.py` can create, recall, and surface memories.
+- `examples/two_hop_graph.py` proves the Y-axis two-hop graph contract.
 
 Do not start with pgvector, cron, or a housekeeper LLM. First make the boring
 core boringly reliable.
@@ -244,6 +245,7 @@ Before calling an implementation complete, verify:
 - Recall with no query returns only current/active memories.
 - FTS and LIKE recall exclude archived, superseded, and inactive fact rows.
 - A controlled Y fixture proves typed two-hop expansion.
+- `PYTHONPATH=src python examples/two_hop_graph.py` prints `OK`.
 - Review relation edges are stored for audit but excluded from default recall.
 - Patrol flags stale/orphan/self-loop/duplicate relation issues without writes.
 - Hippocampus dry-run and apply behavior are both tested.

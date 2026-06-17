@@ -41,6 +41,8 @@ LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部
 | 适合 | 原型、demo、<5k 向量、离线 | VPS 7×24 部署、persona 级 agent、跨月连续性 |
 
 Minimal 版 `pip install -e .` + `python examples/demo.py` 就跑。
+如果要单独验收 Y 轴关系网，运行
+`PYTHONPATH=src python examples/two_hop_graph.py`。
 Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 [extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
 和 [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)。
@@ -261,7 +263,11 @@ lmc5 doctor --db demo.sqlite
 
 ```bash
 PYTHONPATH=src python examples/demo.py
+PYTHONPATH=src python examples/two_hop_graph.py
 ```
+
+`examples/two_hop_graph.py` 是一个很小的 Y 轴验收夹具：它证明 safe 关系能走到
+hop 1 和 hop 2，同时 review 边、弱边、superseded endpoint 不会混进默认 recall。
 
 示例输出：
 
@@ -536,7 +542,7 @@ docs/
   credits.md / safety.md / project_hypothesis.md / why_openai.md / claude_code.md
 
 examples/
-  seed.jsonl / demo.py
+  seed.jsonl / demo.py / two_hop_graph.py
 
 tests/
   test_consolidation.py / test_events.py / test_fact_evolution.py

@@ -31,7 +31,10 @@ def main() -> None:
                 category="checklist",
                 tags=["verification"],
             )
-            store.add_relation(safety.id, verify.id, "supports", reason="verification supports rollback")
+            # Default graph expansion only walks safe relations. Review
+            # relations such as supports/contradicts/cause_effect are kept for
+            # audit workflows, not ordinary recall expansion.
+            store.add_relation(safety.id, verify.id, "same_topic", reason="shared safety workflow")
             store.log_event(
                 role="user",
                 content="Can you recover the production rollback notes from earlier?",

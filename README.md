@@ -46,6 +46,8 @@ matched to different deployment shapes:
 | Best for | Prototypes, demos, <5k vectors, offline | VPS 7×24 deployments, persona-class agents, multi-month continuity |
 
 The minimal impl `pip install -e .` and runs `python examples/demo.py`.
+To verify the Y-axis contract specifically, run
+`PYTHONPATH=src python examples/two_hop_graph.py`.
 The production impl needs a PostgreSQL instance and at least one
 embedder API key — see [extras/pgvector_backend/README.md](extras/pgvector_backend/README.md)
 and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example).
@@ -298,7 +300,12 @@ Run the Python demo:
 
 ```bash
 PYTHONPATH=src python examples/demo.py
+PYTHONPATH=src python examples/two_hop_graph.py
 ```
+
+`examples/two_hop_graph.py` is a tiny acceptance fixture for the Y axis: it
+proves safe relation expansion can reach hop 1 and hop 2, while review-only
+edges, weak edges, and superseded endpoints stay out of default recall.
 
 Example output:
 
@@ -665,7 +672,7 @@ docs/
   credits.md / safety.md / project_hypothesis.md / why_openai.md / claude_code.md
 
 examples/
-  seed.jsonl / demo.py
+  seed.jsonl / demo.py / two_hop_graph.py
 
 tests/
   test_consolidation.py / test_events.py / test_fact_evolution.py
