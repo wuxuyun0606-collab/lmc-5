@@ -209,6 +209,7 @@ agent hooks / sidecar
   -> log raw events
   -> consolidate
   -> hippocampus, including Y relation build
+  -> timeline_sweep for each configured X-line
   -> z-audit
   -> patrol
   -> surface before the next session
@@ -218,6 +219,9 @@ Definition of done:
 
 - The write path records raw events without needing a model call.
 - The nightly path builds candidates and relations.
+- `DreamSchedule()` resolves to the local-time `0 4 * * *` schedule.
+- `timeline_sweep(thread)` runs for every configured X-line and isolates
+  per-line failures.
 - Z audit creates pending rows only.
 - Patrol reports drift without mutation.
 - `surface` combines live curated recall and raw event search safely.

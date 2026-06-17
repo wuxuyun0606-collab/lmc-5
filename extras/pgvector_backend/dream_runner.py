@@ -3,8 +3,8 @@
 每晚跑一次，把白天积累的原始对话变成结构化记忆：
 
     consolidate → hippocampus (incl. Y relation build) → heartbeat_detector
-        → e_axis_backfill → narrative_weekly → narrative_monthly (每月初)
-        → z_audit → patrol
+        → e_axis_backfill → timeline_sweep(each X-line)
+        → narrative_weekly → narrative_monthly (每月初) → z_audit → patrol
 
 每步可选（传 None 就跳）。失败隔离——一步挂了不影响后续步骤。
 
@@ -31,6 +31,8 @@
         consolidate=my_consolidate_fn,
         hippocampus=my_hippocampus_fn,
         heartbeat_detect=my_heartbeat_fn,
+        timeline_sweep=my_thread_cleanup_fn,
+        timeline_threads=["safety", "engineering", "frontend", "other"],
         narrative_weekly=my_weekly_fn,
         narrative_monthly=my_monthly_fn,
         z_audit=my_z_audit_fn,
@@ -46,7 +48,9 @@
     - 每步是一个 Callable，不传就跳——零耦合
     - 每步独立 try/except——一步挂了不影响后续
     - 返回 DreamResult 包含每步的状态和耗时
+    - timeline_sweep 逐条 X 线执行，单线失败不阻断其他线
     - monthly 只在每月前 3 天触发（可配）
+    - DreamSchedule 提供每日 04:00 local-time cron 生成与测试入口
     - 支持 --dry-run（只打印会跑什么，不真跑）
 """
 from __future__ import annotations
@@ -54,8 +58,8 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Optional
+from datetime import datetime, timedelta
+from typing import Any, Callable, Optional, Sequence
 
 log = logging.getLogger("lmc5.dream_runner")
 
@@ -82,7 +86,11 @@ class DreamResult:
     def summary(self) -> str:
         lines = [f"Dream run: {self.started_at} → {self.finished_at} ({self.total_duration_s:.1f}s)"]
         for s in self.steps:
-            tag = "✓" if s.status == "ok" else ("⊘" if s.status == "skipped" else "✗")
+            tag = (
+                "✓"
+                if s.status == "ok"
+                else ("⊘" if s.status == "skipped" else ("→" if s.status == "would_run" else "✗"))
+            )
             line = f"  {tag} {s.name}: {s.status}"
             if s.duration_s > 0:
                 line += f" ({s.duration_s:.1f}s)"
@@ -90,6 +98,64 @@ class DreamResult:
                 line += f" — {s.error}"
             lines.append(line)
         return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class DreamSchedule:
+    """Local-time nightly schedule for the dream runner.
+
+    This does not install cron by itself. It gives deployments a single
+    testable source of truth for the intended 04:00 local run time.
+    """
+
+    hour: int = 4
+    minute: int = 0
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.hour <= 23:
+            raise ValueError("DreamSchedule.hour must be between 0 and 23")
+        if not 0 <= self.minute <= 59:
+            raise ValueError("DreamSchedule.minute must be between 0 and 59")
+
+    @property
+    def cron_expression(self) -> str:
+        return f"{self.minute} {self.hour} * * *"
+
+    def should_start_at(self, now: datetime) -> bool:
+        """Return True only for the scheduled local minute."""
+
+        return now.hour == self.hour and now.minute == self.minute
+
+    def next_run_after(self, now: datetime) -> datetime:
+        """Return the next scheduled local datetime strictly after ``now``."""
+
+        candidate = now.replace(hour=self.hour, minute=self.minute, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate
+
+    def cron_line(
+        self,
+        *,
+        working_dir: str = "/opt/lmc5-agent",
+        python: str = "/opt/lmc5-agent/.venv/bin/python",
+        module: str = "extras.pgvector_backend.dream_runner",
+        log_path: str = "logs/nightly.log",
+    ) -> str:
+        return (
+            f"{self.cron_expression}  cd {working_dir} && "
+            f"{python} -m {module} >> {log_path} 2>&1"
+        )
+
+
+@dataclass
+class TimelineSweepResult:
+    """One X-line cleanup/reflection attempt."""
+
+    thread: str
+    status: str
+    output: Any = None
+    error: str = ""
 
 
 class DreamRunner:
@@ -101,6 +167,7 @@ class DreamRunner:
         consolidate:        () -> Any   原始事件 → chunks
         hippocampus:        () -> Any   chunks → 候选记忆（dry-run 或 apply）
         heartbeat_detect:   () -> Any   chunks → 心跳时刻 + 情绪碎片检测
+        timeline_sweep:     (thread) -> Any 逐条 X 线整理/反思/清理
         narrative_weekly:   () -> Any   生成本周叙事索引
         narrative_monthly:  () -> Any   生成本月叙事索引
         z_audit:            () -> Any   Z 线冲突审计
@@ -114,6 +181,7 @@ class DreamRunner:
         "hippocampus",
         "heartbeat_detect",
         "e_axis_backfill",
+        "timeline_sweep",
         "narrative_weekly",
         "narrative_monthly",
         "z_audit",
@@ -125,49 +193,118 @@ class DreamRunner:
         consolidate: Optional[Callable[[], Any]] = None,
         hippocampus: Optional[Callable[[], Any]] = None,
         heartbeat_detect: Optional[Callable[[], Any]] = None,
+        timeline_sweep: Optional[Callable[[str], Any]] = None,
+        timeline_threads: Sequence[str] | Callable[[], Sequence[str]] = (),
         narrative_weekly: Optional[Callable[[], Any]] = None,
         narrative_monthly: Optional[Callable[[], Any]] = None,
         z_audit: Optional[Callable[[], Any]] = None,
         patrol: Optional[Callable[[], Any]] = None,
         e_axis_backfill: Optional[Callable[[], Any]] = None,
         monthly_day_limit: int = 3,
+        clock: Callable[[], datetime] = datetime.now,
     ):
         for name, fn in [
             ("consolidate", consolidate),
             ("hippocampus", hippocampus),
             ("heartbeat_detect", heartbeat_detect),
+            ("timeline_sweep", timeline_sweep),
             ("narrative_weekly", narrative_weekly),
             ("narrative_monthly", narrative_monthly),
             ("z_audit", z_audit),
             ("patrol", patrol),
             ("e_axis_backfill", e_axis_backfill),
+            ("timeline_threads", timeline_threads),
+            ("clock", clock),
         ]:
             if fn is not None and not callable(fn):
-                raise TypeError(f"DreamRunner: {name} must be callable or None, got {type(fn).__name__}")
+                if name != "timeline_threads":
+                    raise TypeError(
+                        f"DreamRunner: {name} must be callable or None, "
+                        f"got {type(fn).__name__}"
+                    )
+        if (
+            not callable(timeline_threads)
+            and timeline_threads is not None
+            and not isinstance(timeline_threads, Sequence)
+        ):
+            raise TypeError(
+                "DreamRunner: timeline_threads must be a sequence, callable, or None, "
+                f"got {type(timeline_threads).__name__}"
+            )
+        if isinstance(timeline_threads, (str, bytes)):
+            raise TypeError("DreamRunner: timeline_threads must be a sequence of thread names")
 
         self._steps = {
             "consolidate": consolidate,
             "hippocampus": hippocampus,
             "heartbeat_detect": heartbeat_detect,
+            "timeline_sweep": timeline_sweep,
             "narrative_weekly": narrative_weekly,
             "narrative_monthly": narrative_monthly,
             "z_audit": z_audit,
             "patrol": patrol,
             "e_axis_backfill": e_axis_backfill,
         }
+        self.timeline_threads = timeline_threads
         self.monthly_day_limit = monthly_day_limit
+        self.clock = clock
 
     def _should_run_monthly(self) -> bool:
-        return datetime.now().day <= self.monthly_day_limit
+        return self.clock().day <= self.monthly_day_limit
+
+    def _resolve_timeline_threads(self) -> list[str]:
+        raw = self.timeline_threads() if callable(self.timeline_threads) else self.timeline_threads
+        seen: set[str] = set()
+        threads: list[str] = []
+        for thread in raw or ():
+            clean = str(thread).strip()
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            threads.append(clean)
+        return threads
+
+    def _run_timeline_sweep(self) -> StepResult:
+        fn = self._steps.get("timeline_sweep")
+        if fn is None:
+            return StepResult(name="timeline_sweep", status="skipped")
+
+        threads = self._resolve_timeline_threads()
+        if not threads:
+            return StepResult(
+                name="timeline_sweep",
+                status="skipped",
+                error="no timeline_threads configured",
+            )
+
+        t0 = time.time()
+        results: list[TimelineSweepResult] = []
+        for thread in threads:
+            try:
+                results.append(TimelineSweepResult(thread=thread, status="ok", output=fn(thread)))
+            except Exception as e:
+                log.error("dream timeline_sweep '%s' failed: %s", thread, e)
+                results.append(TimelineSweepResult(thread=thread, status="error", error=str(e)))
+        elapsed = time.time() - t0
+        status = "error" if any(r.status == "error" for r in results) else "ok"
+        return StepResult(
+            name="timeline_sweep",
+            status=status,
+            duration_s=elapsed,
+            output=results,
+        )
 
     def _run_step(self, name: str) -> StepResult:
+        if name == "timeline_sweep":
+            return self._run_timeline_sweep()
+
         fn = self._steps.get(name)
         if fn is None:
             return StepResult(name=name, status="skipped")
 
         if name == "narrative_monthly" and not self._should_run_monthly():
             return StepResult(name=name, status="skipped",
-                              error=f"day {datetime.now().day} > {self.monthly_day_limit}")
+                              error=f"day {self.clock().day} > {self.monthly_day_limit}")
 
         t0 = time.time()
         try:
@@ -182,7 +319,7 @@ class DreamRunner:
 
     def run(self, dry_run: bool = False) -> DreamResult:
         """跑完整条管线。dry_run=True 只打印会跑什么，不真跑。"""
-        started = datetime.now()
+        started = self.clock()
         steps: list[StepResult] = []
 
         if dry_run:
@@ -190,6 +327,9 @@ class DreamRunner:
                 fn = self._steps.get(name)
                 if fn is None:
                     steps.append(StepResult(name=name, status="skipped"))
+                elif name == "timeline_sweep" and not self._resolve_timeline_threads():
+                    steps.append(StepResult(name=name, status="skipped",
+                                            error="no timeline_threads configured"))
                 elif name == "narrative_monthly" and not self._should_run_monthly():
                     steps.append(StepResult(name=name, status="skipped",
                                             error=f"day {started.day} > {self.monthly_day_limit}"))
@@ -206,7 +346,7 @@ class DreamRunner:
         for name in self.STEP_ORDER:
             steps.append(self._run_step(name))
 
-        finished = datetime.now()
+        finished = self.clock()
         total = (finished - started).total_seconds()
         result = DreamResult(
             started_at=started.isoformat(),
