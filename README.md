@@ -67,6 +67,12 @@ and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)
 > "I shipped the code so I'm done" is the most common operational hole in this
 > repo — not because you shipped slow, but because no one told you there's one
 > more step.
+>
+> If you are implementing LMC-5 from scratch or porting it into a larger
+> project, follow [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)
+> first. It gives the staged build order: X/Z safety substrate, M patrol, Y
+> write path, Y two-hop typed graph read path, hippocampus relation build, then
+> E-axis shadow scoring and production cron.
 
 > The next sections describe the minimal impl in detail. For the
 > production impl, the entry points are
@@ -648,6 +654,7 @@ extras/pgvector_backend/             # PRODUCTION reference impl — PG + ANN + 
 
 docs/
   architecture.md                    # core XYZEM architecture
+  IMPLEMENTATION_ORDER.md            # staged build order + acceptance checklist
   xyzem_consolidation.md             # how chunks become curated memories
   PERSONA_MODE.md                    # six policy switches for AI companion deployments
   DEEPSEEK_INTEGRATION.md            # housekeeper LLM role across all axes

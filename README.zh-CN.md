@@ -57,6 +57,11 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 > **部署时务必把 `night_dream` 加进 cron(每日一次足够)**,详见
 > [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 > "做完代码就以为完事"是这个仓库最常见的运维洞——不是你写慢了,是没人告诉你还得跑这一步。
+>
+> 如果你是在大项目里从零接 LMC-5，先看
+> [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)。它按阶段说明
+> 先做 X/Z 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
+> hippocampus 关系构建、E 轴 shadow scoring 和 production cron。
 
 > 接下来的章节详细介绍 minimal 实现。Production 实现的入口文档：
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)（管道层）、
@@ -520,6 +525,7 @@ extras/pgvector_backend/             # PRODUCTION 参考实现 — PG + ANN + LL
 
 docs/
   architecture.md                    # 核心 XYZEM 架构
+  IMPLEMENTATION_ORDER.md            # 分阶段实现顺序 + 完成验收清单
   xyzem_consolidation.md             # chunk → curated 的工程逻辑
   PERSONA_MODE.md                    # 给 AI 伴侣部署的六个策略开关
   DEEPSEEK_INTEGRATION.md            # housekeeper LLM 跨轴的角色
