@@ -65,8 +65,25 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 > 先做 X/Z 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
 > hippocampus 关系构建、E 轴 shadow scoring 和 production cron。
 
+### 五线自动化速查
+
+LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron/systemd**。
+`add_memory(...)` 不是后台 daemon。
+
+| 轴 | 接好后能自动吗 | 仍需复核/人工决策 |
+|---|---|---|
+| **X** | 能：`consolidate` 和 `timeline_sweep(thread)` 可以夜间跑。 | 线程命名、拆线/合线、叙事解释。 |
+| **Y** | 能：hippocampus pass 可以自动写安全关系边。 | `contradicts`、`cause_effect`、`supports` 和大规模图清理。 |
+| **Z** | 半自动：`z_audit` 可以把矛盾/覆盖候选放进审计队列。 | 真正 supersede 当前事实。 |
+| **E** | 能：heartbeat detection 和 E 轴 backfill 可以批处理/影子期运行。 | 噪声分数在验证前影响排序。 |
+| **M** | 半自动：patrol 是只读且可调度；衰减/去重任务要单独接。 | 归档、删除、合并、降权。 |
+
+完整验收清单见
+[`docs/AUTOMATION_BOUNDARIES.md`](docs/AUTOMATION_BOUNDARIES.md)。
+
 > 接下来的章节详细介绍 minimal 实现。Production 实现的入口文档：
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)（管道层）、
+> [docs/AUTOMATION_BOUNDARIES.md](docs/AUTOMATION_BOUNDARIES.md)（哪些会自动跑、哪些不能自动改）、
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md)（六个开关）、
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md)（后端 + embedder 选择）、
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)（VPS 7×24 + cron/systemd）、

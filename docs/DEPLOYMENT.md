@@ -115,6 +115,9 @@ is to not collide with foreground use.
 > sequence, Z fact contradiction/supersession, M derivation chains).
 > See [`Y_RELATIONS.md`](Y_RELATIONS.md#-how-to-actually-build-relations)
 > for the verification SQL.
+>
+> For the axis-by-axis automation boundary, including what must remain
+> review-only, see [`AUTOMATION_BOUNDARIES.md`](AUTOMATION_BOUNDARIES.md).
 
 ### Option B · systemd timer (recommended for production)
 

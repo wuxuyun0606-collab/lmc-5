@@ -228,6 +228,9 @@ Definition of done:
 - Backups/snapshots exist before scheduled writes.
 
 Use `docs/DEPLOYMENT.md` for cron/systemd wiring after the staged core works.
+Use `docs/AUTOMATION_BOUNDARIES.md` as the final checklist for what can run
+unattended, what only runs after cron/callback wiring, and what must remain
+review-only.
 
 ## What Not To Do
 

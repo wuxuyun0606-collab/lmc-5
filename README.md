@@ -76,9 +76,26 @@ and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)
 > write path, Y two-hop typed graph read path, hippocampus relation build, then
 > E-axis shadow scoring and production cron.
 
+### Quick Automation Map
+
+LMC-5 has automatic passes, but **only after you wire and schedule them**.
+`add_memory(...)` is not a background daemon.
+
+| Axis | Automatic After Wiring? | What Still Needs Review |
+|---|---|---|
+| **X** | Yes: `consolidate` and `timeline_sweep(thread)` can run nightly. | Thread naming, split/merge decisions, timeline interpretation. |
+| **Y** | Yes: the hippocampus pass can write safe relation edges. | `contradicts`, `cause_effect`, `supports`, and broad graph cleanup. |
+| **Z** | Partly: `z_audit` can queue contradiction/supersession candidates. | Applying supersession to live facts. |
+| **E** | Yes: heartbeat detection and E-axis backfill can run in batch/shadow mode. | Letting noisy scores affect ranking before validation. |
+| **M** | Partly: patrol is read-only and schedulable; decay/dedup jobs are separate. | Archive/delete/merge/demote decisions. |
+
+For the full checklist, read
+[`docs/AUTOMATION_BOUNDARIES.md`](docs/AUTOMATION_BOUNDARIES.md).
+
 > The next sections describe the minimal impl in detail. For the
 > production impl, the entry points are
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) (the pipeline),
+> [docs/AUTOMATION_BOUNDARIES.md](docs/AUTOMATION_BOUNDARIES.md) (what runs by itself),
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md) (six policy switches),
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md) (backend + embedder choices),
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (VPS shape + cron/systemd),
