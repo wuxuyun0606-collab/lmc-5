@@ -257,6 +257,101 @@ def test_three_stage_fallback_logic():
     assert "raw_events" not in calls
 
 
+def test_literal_search_runs_despite_high_vector_score():
+    """Exact/literal raw-event hits should not be blocked by weak semantic hits."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    calls = []
+
+    def fake_vector(q, k):
+        calls.append("vector")
+        return [RecallHit(source_id=1, title="semantic", content="weak nearby",
+                          score=0.50, channel="vector")]
+
+    def fake_raw(q, k):
+        calls.append("raw_events")
+        return [RecallHit(source_id=2, title="raw", content="蘸水菜",
+                          score=0.4, channel="raw_events")]
+
+    def fake_literal(q, k):
+        calls.append("literal")
+        return [RecallHit(source_id=7, title="literal", content="昨天说过蘸水菜",
+                          score=0.55, channel="literal",
+                          metadata={"namespace": "raw_events"})]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        raw_events_search=fake_raw,
+        literal_search=fake_literal,
+        raw_events_floor=0.30,
+    )
+    result = pipeline.recall("你搜蘸水菜？")
+
+    assert "vector" in calls
+    assert "raw_events" not in calls  # gated fallback stays gated
+    assert "literal" in calls         # exact channel is independent
+    assert "literal" in result.channels_used
+    assert any("蘸水菜" in h.content for h in result.hits)
+
+
+def test_raw_events_namespace_does_not_collide_with_curated_ids():
+    """Raw event id=1 must not dedup away curated memory id=1."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    pipeline = RecallPipeline()
+    hits = pipeline._merge_dedup([
+        ("vector", [RecallHit(source_id=1, title="curated", content="curated",
+                              score=0.6, channel="vector")]),
+        ("literal", [RecallHit(source_id=1, title="raw", content="raw",
+                               score=0.55, channel="literal",
+                               metadata={"namespace": "raw_events"})]),
+    ])
+
+    assert len(hits) == 2
+    assert {h.title for h in hits} == {"curated", "raw"}
+
+
+def test_literal_query_terms_extracts_chinese_specific_term():
+    from extras.pgvector_backend.recall_pipeline import (
+        literal_query_terms,
+        should_run_literal_search,
+    )
+
+    terms = literal_query_terms("你搜蘸水菜？")
+
+    assert "蘸水菜" in terms
+    assert should_run_literal_search("你搜蘸水菜？")
+    assert should_run_literal_search("蘸水菜")
+    assert not should_run_literal_search("我今天很累")
+
+
+def test_recent_raw_chunk_bridge_is_independent_and_capped():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="semantic", content="semantic",
+                          score=0.80, channel="vector")]
+
+    def fake_raw_chunk(q, k):
+        assert k == 1
+        return [
+            RecallHit(source_id=99, title="recent", content="刚才说过蘸水菜",
+                      score=0.50, channel="raw_chunk",
+                      metadata={"namespace": "raw_chunk"})
+        ]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        recent_raw_chunk_search=fake_raw_chunk,
+        recent_raw_chunk_top_k=1,
+    )
+    result = pipeline.recall("刚才说了什么")
+
+    assert "raw_chunk" in result.channels_used
+    assert result.channel_counts["raw_chunk"] == 1
+    assert any(h.channel == "raw_chunk" for h in result.hits)
+
+
 def test_night_dream_invokes_dispatcher_on_write():
     """NightDream.run(apply=True) calls dispatcher.maybe_score for every written candidate."""
     from extras.pgvector_backend.night_dream import NightDream, Candidate, Chunk

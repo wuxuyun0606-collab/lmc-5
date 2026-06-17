@@ -32,7 +32,7 @@ LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部
 | | Minimal（`src/lmc5/`） | Production（`extras/pgvector_backend/`） |
 |---|---|---|
 | 存储 | SQLite 零依赖 | PostgreSQL + pgvector halfvec + ivfflat ANN |
-| 召回 | FTS5 关键词 + 便携余弦 | 三层级联（向量 → curated FTS → raw-events FTS）+ 三条独立通道（Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现）+ 可选 rerank |
+| 召回 | FTS5 关键词 + 便携余弦 | 三层级联（向量 → curated FTS → raw-events FTS）+ 独立通道（literal raw-events / raw_chunk 桥 / Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现）+ 可选 rerank |
 | 海马体 | 确定性切块 | LLM 提议候选 + 安全闸门 + 语义去重 |
 | 反思层 | — | 周报 / 月报叙事索引 |
 | E 轴 | 字段占位 | provider-agnostic LLM 评分器 + 重试 + min-confidence + 影子期 helper |
@@ -433,7 +433,7 @@ lmc5 vector-search --db demo.sqlite \
 ## 三层级联检索
 
 production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不是”五通道并行”。
-它是**三层级联逐级兜底 + 三条独立通道始终并行**。
+它是**三层级联逐级兜底 + 带各自门控的独立通道**。
 
 ```text
                     query
@@ -463,7 +463,7 @@ production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不�
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
-           │  合并去重             │  ← 同时合并 3 条独立通道的结果
+           │  合并去重             │  ← 同时合并独立通道的结果
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
@@ -487,20 +487,29 @@ production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不�
   用户说”蛋壳”，embedder 以为是鸡蛋壳。FTS 抓的是向量漏掉的。
 - **curated FTS 也不够。** 精选记忆是筛过、浓缩过的——用户问的东西可能只在某次原始
   对话里说过一句。Stage 3 去翻原始事件日志（量级大一个数量级），把它捞出来。
-- **独立并行通道补深度。** 关系图扩展找到 query 没提到的关联记忆。情绪联想找到
+- **独立通道补深度。** literal raw-events 能在 vector 出现弱相关近邻时，仍然抓住
+  精确短词/专名。极小额度的 raw-chunk bridge 可以补 SessionEnd 到夜间 hippocampus
+  之间的空窗。关系图扩展找到 query 没提到的关联记忆。情绪联想找到
   *感觉相同*的记忆。自发浮现冒出 AI 在用户开口之前就在想的东西。
 
-**阈值（全部可通过 `LMC5Config` 配置）：**
+**召回参数（构造参数或 hook 环境变量）：**
 
 | 参数 | 默认值 | 含义 |
 |------|--------|------|
 | `fts_floor` | 0.45 | 向量最高分低于此值时触发 curated FTS |
 | `raw_events_floor` | 0.30 | 向量最高分低于此值时触发 raw events FTS |
+| `literal_top_k` | 3 | 短专名/精确词查询最多返回几条 literal raw-events |
+| `literal_query_max_chars` | 80 | 长 prompt 不触发 literal raw-events |
+| `recent_raw_chunk_top_k` | 1 | 临时 raw-chunk 桥最多返回几条 |
+| `LMC5_LITERAL_RAW_EVENTS` | 1 | hook 环境变量：是否启用精确 raw-events 通道 |
+| `LMC5_RAW_CHUNK_BRIDGE` | 0 | hook 环境变量：是否启用可选 recent raw_chunk 桥 |
 | `injection_budget_chars` | 4000 | 最终注入文本的字符上限 |
 
 级联不是”全跑一遍选最好的”。是**逐级兜底**：向量快且通常够用；FTS 慢但抓关键词；
 raw events 是最大、最吵的池子，只有前两层都空手时才启动。每一层扩大搜索网的同时
-也引入更多噪声，阈值控制什么时候值得为此买单。
+也引入更多噪声，阈值控制什么时候值得为此买单。literal raw-events 是例外：它是
+短专名、代号、带引号短语和 CJK 精确词的小通道，防止弱 vector 命中否决原始日志里的
+字面命中。
 
 完整管线图和接线示例见 [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)。
 

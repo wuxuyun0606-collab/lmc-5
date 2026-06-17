@@ -107,6 +107,7 @@ def build_pipeline_from_env():
     # 向量通道——有 embedder 才接，没有就明确 log
     embedder = emb_module.get_embedder()
     vector_search = None
+    store = None
     if embedder is not None:
         try:
             store = vector_pgvector.PgvectorStore(dsn=dsn, embedder=embedder)
@@ -147,10 +148,30 @@ def build_pipeline_from_env():
             for p in perception_module.load_perception_cache(cache_path)[:k]
         ]
 
+    enable_literal = os.environ.get("LMC5_LITERAL_RAW_EVENTS", "1").strip().lower()
+    literal_search = None
+    if enable_literal not in {"0", "false", "off", "no"}:
+        try:
+            literal_days = int(os.environ.get("LMC5_LITERAL_RAW_EVENTS_DAYS", "30"))
+        except ValueError:
+            literal_days = 30
+        literal_search = rp_module.literal_raw_events_search_adapter(
+            pg, recent_days=literal_days
+        )
+
+    enable_raw_chunk = os.environ.get("LMC5_RAW_CHUNK_BRIDGE", "0").strip().lower()
+    recent_raw_chunk_search = None
+    if enable_raw_chunk in {"1", "true", "on", "yes"} and store is not None and embedder is not None:
+        recent_raw_chunk_search = rp_module.raw_chunk_vector_search_adapter(
+            store, embedder
+        )
+
     return rp_module.RecallPipeline(
         vector_search=vector_search,
         fts_search=rp_module.fts_search_adapter(pg),
         raw_events_search=rp_module.raw_events_search_adapter(pg),
+        literal_search=literal_search,
+        recent_raw_chunk_search=recent_raw_chunk_search,
         graph_expand=rp_module.graph_expand_adapter(pg),
         emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,

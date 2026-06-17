@@ -112,8 +112,8 @@ respects that boundary.
 
 ## Multi-Channel Recall
 
-`RecallPipeline` runs a **three-tier cascade** plus **three independent
-channels** for any non-trivial prompt, then merges them.
+`RecallPipeline` runs a **three-tier cascade** plus **independent channels**
+with their own gates, then merges them for any non-trivial prompt.
 
 ### Stage 0 — Query Expansion (optional)
 
@@ -148,9 +148,28 @@ previous stage's best score is too low.
      Typical rescue: a new codename, a person's name mentioned once,
      a term that was never promoted to curated memory.
 
-### The three independent channels
+3b. **Literal raw-events channel** (`recall_pipeline.literal_raw_events_search_adapter`)
+   - Independent from vector score. It runs only for short, literal-looking
+     queries: CJK proper nouns, quoted phrases, codenames, and exact terms.
+   - This fixes the common "weak vector hit blocked exact raw keyword" failure:
+     a query like "你搜蘸水菜？" should still check raw events for `蘸水菜`
+     even if vector search returned a 0.4–0.5 semantic near miss.
+   - The default `UserPromptSubmit` hook enables it with
+     `LMC5_LITERAL_RAW_EVENTS=1`; set that env var to `0` to disable it.
 
-These always run in parallel, regardless of vector scores.
+3c. **Recent raw chunk bridge** (`recall_pipeline.raw_chunk_vector_search_adapter`)
+   - Optional, off by default. Enable with `LMC5_RAW_CHUNK_BRIDGE=1` after you
+     have written temporary vectors with `owner_type='raw_chunk'`.
+   - This is a small SessionEnd → nightly hippocampus bridge. Keep top-K at 1
+     and injected content short. It is not a new long-term memory layer.
+   - Delete/digest these temporary vectors after consolidation/hippocampus has
+     processed the session.
+
+### The independent channels
+
+These are independent from the vector fallback thresholds. Some still have
+their own safety gates: literal search only runs for short literal-looking
+queries, and raw_chunk is off unless explicitly enabled.
 
 4. **Graph expansion** (Y-axis 2-hop)
    - Takes the top vector hits as seeds, expands via

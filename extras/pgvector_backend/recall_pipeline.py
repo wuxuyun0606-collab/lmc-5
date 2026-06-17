@@ -7,7 +7,9 @@
      ├── Stage 1: pgvector 语义召回（主路 · halfvec ANN）
      ├── Stage 2: curated FTS 全文兜底（向量 top_score < 0.45 时启动）
      └── Stage 3: raw events FTS 兜底（向量 top_score < 0.30 时启动）
-  2. 三条独立并行通道：
+  2. 五条独立并行通道：
+     ├── 字面精确检索（短查询/中文专名/带引号查询，不被 vector 分数门控）
+     ├── 最近 raw_chunk 急救桥（可选 · 极小额度，补 SessionEnd→夜间精炼空窗）
      ├── 关系图 2 跳扩展（种子 → graph_activate）
      ├── 情绪联想（Russell 距离找近邻碎片）
      └── 自发浮现（perception.py 注入 1-2 条不被问也想起的）
@@ -21,6 +23,103 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 
+_LITERAL_TRIGGER = r"(?:搜一下|查一下|找一下|搜索|检索|搜|查|找|记得|说过|提到|关于|叫)"
+_GENERIC_CJK_LITERAL_STOPS = (
+    "今天", "刚才", "现在", "什么", "怎么", "为什么", "是不是", "可以",
+    "需要", "感觉", "觉得", "想要", "开心", "难过", "很累", "继续",
+)
+
+
+def should_run_literal_search(query: str, max_chars: int = 80) -> bool:
+    """Whether an exact/literal channel is likely worth running."""
+    import re
+
+    text = (query or "").strip()
+    if not text or len(text) > max_chars:
+        return False
+    if re.search(r"[「『“\"'`]([^」』”\"'`]{2,80})[」』”\"'`]", text):
+        return True
+    if re.search(_LITERAL_TRIGGER + r"[\u4e00-\u9fffA-Za-z0-9_-]{2,40}", text):
+        return True
+    if re.search(r"[A-Za-z][A-Za-z0-9_-]{2,40}", text):
+        return True
+    compact = re.sub(r"[\s：:，,。.!！?？、；;“”‘’'\"`「」『』（）()【】\[\]]+", "", text)
+    if re.fullmatch(r"[\u4e00-\u9fff]{2,8}", compact):
+        return not any(stop in compact for stop in _GENERIC_CJK_LITERAL_STOPS)
+    return False
+
+
+def literal_query_terms(query: str, max_terms: int = 16) -> list[str]:
+    """Extract literal terms worth checking with exact/ILIKE search.
+
+    This is intentionally heuristic. It is meant to rescue short CJK terms,
+    proper nouns, codenames, and quoted phrases that embeddings often blur.
+    """
+    import re
+
+    text = (query or "").strip()
+    if not text:
+        return []
+
+    seen: set[str] = set()
+    terms: list[str] = []
+
+    def add(term: str) -> None:
+        term = term.strip(" \t\r\n：:，,。.!！?？、；;“”‘’'\"`「」『』（）()[]【】")
+        if len(term) < 2 or term in seen:
+            return
+        seen.add(term)
+        terms.append(term)
+
+    # Explicit quotes are the strongest signal.
+    for m in re.finditer(r"[「『“\"'`]([^」』”\"'`]{2,80})[」』”\"'`]", text):
+        add(m.group(1))
+
+    # Common Chinese retrieval prompts: "你搜蘸水菜？", "查一下邦德".
+    for m in re.finditer(_LITERAL_TRIGGER + r"([\u4e00-\u9fffA-Za-z0-9_-]{2,40})", text):
+        add(m.group(1))
+
+    def strip_query_prefix(seq: str) -> str:
+        prefixes = (
+            "你帮我", "帮我", "能不能", "可不可以", "你能", "我们", "刚才",
+            "上次", "上一段", "上个", "这个", "那个", "你", "我",
+            "搜一下", "查一下", "找一下", "搜索", "检索", "搜", "查", "找",
+            "记得", "说过", "提到", "关于",
+        )
+        suffixes = ("吗", "呢", "啊", "呀", "么", "吧", "不")
+        changed = True
+        while changed:
+            changed = False
+            for p in prefixes:
+                if seq.startswith(p) and len(seq) - len(p) >= 2:
+                    seq = seq[len(p):]
+                    changed = True
+            for s in suffixes:
+                if seq.endswith(s) and len(seq) - len(s) >= 2:
+                    seq = seq[:-len(s)]
+                    changed = True
+        return seq
+
+    for seq in re.findall(r"[\u4e00-\u9fff]{2,24}", text):
+        cleaned = strip_query_prefix(seq)
+        add(cleaned)
+        # If the prompt glued command words to the noun, keep a small set of
+        # longer ngrams. "你搜蘸水菜" should still produce "蘸水菜".
+        if len(seq) <= 12:
+            for n in range(min(8, len(seq)), 1, -1):
+                for i in range(0, len(seq) - n + 1):
+                    add(seq[i:i + n])
+                    if len(terms) >= max_terms:
+                        return terms
+
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,40}", text):
+        add(token)
+        if len(terms) >= max_terms:
+            break
+
+    return terms[:max_terms]
+
+
 @dataclass
 class RecallHit:
     """统一的命中结构。各通道结果归一到这个类。"""
@@ -28,7 +127,7 @@ class RecallHit:
     title: str
     content: str
     score: float                # 通道内得分（0-1 归一化）
-    channel: str                # 哪条通道送来的：vector / fts / graph / emotion / perception
+    channel: str                # 哪条通道送来的：vector / fts / literal / raw_events / graph / emotion / perception
     metadata: dict = field(default_factory=dict)
 
 
@@ -56,11 +155,16 @@ class RecallPipeline:
         emotion_resonate: Optional[Callable[[str, int], list[RecallHit]]] = None,
         spontaneous: Optional[Callable[[int], list[RecallHit]]] = None,
         raw_events_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
+        literal_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
+        recent_raw_chunk_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
         rerank: Optional[Callable[[str, list[RecallHit], int], list[RecallHit]]] = None,
         query_expand: Optional[Callable[[str], list[str]]] = None,
         vector_top_k: int = 8,
         fts_top_k: int = 5,
         raw_events_top_k: int = 5,
+        literal_top_k: int = 3,
+        literal_query_max_chars: int = 80,
+        recent_raw_chunk_top_k: int = 1,
         graph_hops: int = 2,
         graph_max_expand: int = 10,
         emotion_top_k: int = 2,
@@ -83,13 +187,23 @@ class RecallPipeline:
                                    启动；查 lmc5_raw_events 原始对话日志的 tsvector。
                                    原始事件比 curated 多一个量级，专门救 vector + curated
                                    都不行的"陌生关键词"场景，例如刚配的新代号、新人名）
+            Independent: literal_search （短查询、中文专名、带引号查询的字面命中；
+                                          不被 vector top_score 门控）
+            Independent: recent_raw_chunk_search （可选急救桥；极小 top_k，补
+                                                   SessionEnd 到夜间精炼之间的空窗）
 
-        其他通道（graph / emotion / spontaneous）独立并行，不在 fallback 链上。
+        其他通道（literal / raw_chunk / graph / emotion / spontaneous）独立并行，
+        不在 fallback 链上。
 
         Args:
             vector_search: (query, top_k) → vector hits
             fts_search: (query, top_k) → FTS hits over curated memories
             raw_events_search: (query, top_k) → FTS hits over raw events journal
+            literal_search: (query, top_k) → exact/literal hits over raw events
+                            or another literal index; runs independently for
+                            short literal-looking queries
+            recent_raw_chunk_search: (query, top_k) → temporary recent-session
+                                     chunk hits; keep top_k tiny
             graph_expand: (seed_ids, hops) → 关系图扩展 hits
             emotion_resonate: (query, top_k) → Russell 情绪联想 hits
             spontaneous: (top_k) → 自发浮现 hits（不查询，按概率冒出）
@@ -99,12 +213,16 @@ class RecallPipeline:
             fts_floor: 向量召回最高分低于此值时走 FTS 兜底
             raw_events_floor: 向量召回最高分低于此值时再启动 raw events 兜底
                               （比 fts_floor 更严——只在真正捞不到时才查原始事件）
+            literal_query_max_chars: 超过这个长度不跑 literal_search，避免长 prompt
+                                     对 raw_events 做无意义 ILIKE
             injection_budget_chars: 最终拼到 system prompt 的字符上限
         """
         for name, fn in (
             ("vector_search", vector_search),
             ("fts_search", fts_search),
             ("raw_events_search", raw_events_search),
+            ("literal_search", literal_search),
+            ("recent_raw_chunk_search", recent_raw_chunk_search),
             ("graph_expand", graph_expand),
             ("emotion_resonate", emotion_resonate),
             ("spontaneous", spontaneous),
@@ -119,6 +237,8 @@ class RecallPipeline:
         self.vector_search = vector_search
         self.fts_search = fts_search
         self.raw_events_search = raw_events_search
+        self.literal_search = literal_search
+        self.recent_raw_chunk_search = recent_raw_chunk_search
         self.query_expand = query_expand
         self.graph_expand = graph_expand
         self.emotion_resonate = emotion_resonate
@@ -128,6 +248,9 @@ class RecallPipeline:
         self.vector_top_k = vector_top_k
         self.fts_top_k = fts_top_k
         self.raw_events_top_k = raw_events_top_k
+        self.literal_top_k = literal_top_k
+        self.literal_query_max_chars = literal_query_max_chars
+        self.recent_raw_chunk_top_k = recent_raw_chunk_top_k
         self.graph_hops = graph_hops
         self.graph_max_expand = graph_max_expand
         self.emotion_top_k = emotion_top_k
@@ -148,20 +271,37 @@ class RecallPipeline:
             log.warning("recall channel '%s' failed: %s", name, e)
             return []
 
+    def _dedup_key(self, hit: RecallHit) -> tuple[str, int]:
+        """Return a stable dedup key.
+
+        Curated-memory channels intentionally share ids. Raw events and recent
+        raw chunks live in different tables/owner namespaces, so their integer
+        ids must not collide with curated memory ids.
+        """
+        namespace = hit.metadata.get("namespace")
+        if namespace:
+            return (str(namespace), int(hit.source_id))
+        if hit.channel in {"raw_events", "literal"}:
+            return ("raw_events", int(hit.source_id))
+        if hit.channel == "raw_chunk":
+            return ("raw_chunk", int(hit.source_id))
+        return ("curated", int(hit.source_id))
+
     def _merge_dedup(self, channels: list[tuple[str, list[RecallHit]]]) -> list[RecallHit]:
-        """同一 source_id 在多通道命中时合并：保留最高分 + 标注命中的所有通道"""
-        merged: dict[int, RecallHit] = {}
+        """同一 namespace+source_id 命中时合并：保留最高分 + 标注所有通道"""
+        merged: dict[tuple[str, int], RecallHit] = {}
         for channel_name, hits in channels:
             for h in hits:
-                if h.source_id in merged:
-                    existing = merged[h.source_id]
+                key = self._dedup_key(h)
+                if key in merged:
+                    existing = merged[key]
                     if h.score > existing.score:
                         existing.score = h.score
                     existing.metadata.setdefault("channels", set()).add(h.channel)
                     existing.metadata["channels"].add(channel_name)
                 else:
                     h.metadata.setdefault("channels", set()).add(h.channel)
-                    merged[h.source_id] = h
+                    merged[key] = h
         # 把 set 转成 sorted list 便于序列化
         for h in merged.values():
             if "channels" in h.metadata and isinstance(h.metadata["channels"], set):
@@ -234,6 +374,22 @@ class RecallPipeline:
                 channel_results.append(("vector", vector_hits))
                 channels_used.append("vector")
 
+        # 1b. 字面精确检索 · 不被 vector top_score 门控。
+        #     只对短查询/中文专名/带引号查询启用，避免长 prompt 扫 raw_events。
+        literal_hits: list[RecallHit] = []
+        if (
+            self.literal_search is not None
+            and should_run_literal_search(query, self.literal_query_max_chars)
+        ):
+            hits = self._safe_call("literal", self.literal_search,
+                                   query, self.literal_top_k)
+            literal_hits = sorted(hits, key=lambda h: h.score, reverse=True)
+            literal_hits = literal_hits[:self.literal_top_k]
+            if literal_hits:
+                channel_results.append(("literal", literal_hits))
+                channels_used.append("literal")
+                log.info("recall: literal search added %d hits", len(literal_hits))
+
         # 2. FTS 兜底 1 · curated_memories（向量分都低时才走，避免空回）
         top_vec_score = max((h.score for h in vector_hits), default=0.0)
         if self.fts_search is not None and top_vec_score < self.fts_floor:
@@ -268,6 +424,18 @@ class RecallPipeline:
                 channels_used.append("raw_events")
                 log.info("recall: vector top_score=%.2f < %.2f, raw_events fallback added %d hits",
                          top_vec_score, self.raw_events_floor, len(raw_hits))
+
+        # 2c. 最近 session raw_chunk 急救桥 · 可选、极小额度。
+        #     这不是长期记忆，只补 SessionEnd → 夜间 hippocampus 之间的短空窗。
+        if self.recent_raw_chunk_search is not None:
+            chunk_hits = self._safe_call("raw_chunk", self.recent_raw_chunk_search,
+                                         query, self.recent_raw_chunk_top_k)
+            chunk_hits = sorted(chunk_hits, key=lambda h: h.score, reverse=True)
+            chunk_hits = chunk_hits[:self.recent_raw_chunk_top_k]
+            if chunk_hits:
+                channel_results.append(("raw_chunk", chunk_hits))
+                channels_used.append("raw_chunk")
+                log.info("recall: recent raw_chunk bridge added %d hits", len(chunk_hits))
 
         # 3. 关系图 2 跳扩展（用 vector hits 当种子）
         if self.graph_expand is not None:
@@ -323,11 +491,15 @@ class RecallPipeline:
 
 # === 通道适配器 helper（把现有模块包装成 callable）===
 
-def vector_search_adapter(store, query_embedder: Callable[[str], list[float]]):
+def vector_search_adapter(
+    store,
+    query_embedder: Callable[[str], list[float]],
+    owner_type: str = "curated",
+):
     """把 PgvectorStore 包成 vector_search callable。"""
     def call(query: str, top_k: int) -> list[RecallHit]:
         vec = query_embedder(query)
-        hits = store.search_vectors(query_vec=vec, owner_type="curated", top_k=top_k)
+        hits = store.search_vectors(query_vec=vec, owner_type=owner_type, top_k=top_k)
         return [
             RecallHit(
                 source_id=h.owner_id,
@@ -335,6 +507,7 @@ def vector_search_adapter(store, query_embedder: Callable[[str], list[float]]):
                 content=h.text_preview,
                 score=h.similarity,
                 channel="vector",
+                metadata={"namespace": h.owner_type},
             )
             for h in hits
         ]
@@ -411,9 +584,87 @@ def raw_events_search_adapter(
                 content=(r[2] or "")[:400],
                 score=min(1.0, float(r[3]) / rank_normalizer),
                 channel="raw_events",
-                metadata={"session_id": r[5], "role": r[1]},
+                metadata={"namespace": "raw_events", "session_id": r[5], "role": r[1]},
             )
             for r in rows
+        ]
+    return call
+
+
+def literal_raw_events_search_adapter(
+    conn,
+    table: str = "lmc5_raw_events",
+    recent_days: int = 30,
+    score: float = 0.55,
+    max_terms: int = 16,
+    max_content_chars: int = 240,
+):
+    """Independent exact/literal search over raw events.
+
+    Unlike raw_events_search_adapter, this is not a vector-score fallback. It is
+    meant for short CJK terms, proper nouns, codenames, and quoted phrases that
+    should get a chance even when vector search returned a weak semantic hit.
+    """
+    def call(query: str, top_k: int) -> list[RecallHit]:
+        terms = literal_query_terms(query, max_terms=max_terms)
+        if not terms:
+            return []
+        patterns = [f"%{term}%" for term in terms]
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT id, role, content, created_at, session_id "
+                f"FROM {table} "
+                f"WHERE content ILIKE ANY(%s) "
+                f"  AND created_at >= NOW() - (%s || ' days')::interval "
+                f"ORDER BY created_at DESC LIMIT %s",
+                (patterns, str(recent_days), top_k),
+            )
+            rows = cur.fetchall()
+        return [
+            RecallHit(
+                source_id=int(r[0]),
+                title=f"[literal raw {r[1] or '?'}] {str(r[3])[:10]}",
+                content=(r[2] or "")[:max_content_chars],
+                score=score,
+                channel="literal",
+                metadata={
+                    "namespace": "raw_events",
+                    "session_id": r[4],
+                    "role": r[1],
+                    "literal_terms": terms[:5],
+                },
+            )
+            for r in rows
+        ]
+    return call
+
+
+def raw_chunk_vector_search_adapter(
+    store,
+    query_embedder: Callable[[str], list[float]],
+    owner_type: str = "raw_chunk",
+    score_cap: float = 0.50,
+    max_content_chars: int = 200,
+):
+    """Optional recent-session raw_chunk bridge.
+
+    Callers may write temporary vectors with owner_type='raw_chunk' at
+    SessionEnd, then delete them after hippocampus/consolidation digests the
+    session. This adapter keeps the bridge small by capping score and content.
+    """
+    def call(query: str, top_k: int) -> list[RecallHit]:
+        vec = query_embedder(query)
+        hits = store.search_vectors(query_vec=vec, owner_type=owner_type, top_k=top_k)
+        return [
+            RecallHit(
+                source_id=h.owner_id,
+                title="[recent raw chunk]",
+                content=(h.text_preview or "")[:max_content_chars],
+                score=min(score_cap, h.similarity),
+                channel="raw_chunk",
+                metadata={"namespace": owner_type, "owner_type": h.owner_type},
+            )
+            for h in hits
         ]
     return call
 

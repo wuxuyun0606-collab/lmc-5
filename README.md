@@ -548,7 +548,7 @@ lmc5 vector-search --db demo.sqlite \
 
 The production recall pipeline (`extras/pgvector_backend/recall_pipeline.py`)
 is not “five channels in parallel”. It is a **three-tier cascade with
-progressive fallback** plus three independent channels that always run.
+progressive fallback** plus independent channels with their own gates.
 
 ```text
                     query
@@ -578,7 +578,7 @@ progressive fallback** plus three independent channels that always run.
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
-           │  merge + dedup      │  ← also merges the 3 independent channels
+           │  merge + dedup      │  ← also merges independent channels
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
@@ -610,24 +610,33 @@ to enable. Without it, the pipeline uses the raw query only.
   condensed — the user asks about something that was only ever said in a
   raw conversation turn. Stage 3 digs into the raw event journal (one order
   of magnitude larger) and catches it.
-- **Always-on parallel channels add depth.** Graph expansion finds related
-  memories the query never mentioned. Emotion resonance finds memories
-  that *feel* the same. Spontaneous recall surfaces what the agent was
+- **Independent channels add depth.** Literal raw-events catches exact short
+  terms even when vector returns a weak near miss. A tiny raw-chunk bridge can
+  cover the gap between SessionEnd and nightly hippocampus. Graph expansion
+  finds related memories the query never mentioned. Emotion resonance finds
+  memories that *feel* the same. Spontaneous recall surfaces what the agent was
   already thinking about before the user typed anything.
 
-**Thresholds (all configurable via `LMC5Config`):**
+**Recall knobs (constructor args or hook env vars):**
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
 | `fts_floor` | 0.45 | Vector top score below this triggers curated FTS |
 | `raw_events_floor` | 0.30 | Vector top score below this triggers raw events FTS |
+| `literal_top_k` | 3 | Max exact/literal raw-event hits for short proper-noun queries |
+| `literal_query_max_chars` | 80 | Long prompts do not trigger literal raw-events search |
+| `recent_raw_chunk_top_k` | 1 | Max temporary raw-chunk bridge hits |
+| `LMC5_LITERAL_RAW_EVENTS` | 1 | Hook env var: enable exact raw-events channel |
+| `LMC5_RAW_CHUNK_BRIDGE` | 0 | Hook env var: enable optional recent raw_chunk bridge |
 | `injection_budget_chars` | 4000 | Max chars in the final injection text |
 
 The cascade is **not** “run everything and pick the best”. It is
 **escalation**: vector is fast and usually sufficient; FTS is slower but
 catches keywords; raw events is the largest, noisiest pool and only
-activates when the first two came up empty. Each tier widens the net
-at the cost of more noise. The thresholds control when to pay that cost.
+activates when the first two came up empty. The literal raw-events channel is
+the exception: it is a small exact-match lane for short proper nouns, codenames,
+quoted phrases, and CJK terms. It prevents a weak vector hit from vetoing an
+exact raw log match.
 
 See [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) for the full
 pipeline diagram and wiring examples.
