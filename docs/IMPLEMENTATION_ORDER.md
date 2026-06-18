@@ -16,6 +16,11 @@ write memory -> protect fact lifecycle -> build safe relations
 If that loop is not closed, you have a database with memories in it. You do not
 yet have a memory graph. Cute table, no legs.
 
+If you are unsure what "closed loop" means in practice, read
+[`CONNECTING_XYZEM.md`](CONNECTING_XYZEM.md) first. This file gives the staged
+build order; `CONNECTING_XYZEM.md` explains how the write path, night path, and
+recall path fit together.
+
 ## Phase 0: Install And Prove The Core Runs
 
 Goal: prove the local package, SQLite schema, FTS, and test suite work before

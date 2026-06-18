@@ -71,10 +71,12 @@ and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)
 > more step.
 >
 > If you are implementing LMC-5 from scratch or porting it into a larger
-> project, follow [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)
-> first. It gives the staged build order: X/Z safety substrate, M patrol, Y
-> write path, Y two-hop typed graph read path, hippocampus relation build, then
-> E-axis shadow scoring and production cron.
+> project, read [`docs/CONNECTING_XYZEM.md`](docs/CONNECTING_XYZEM.md) first,
+> then follow [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md).
+> The first guide explains how the five axes become the write, night, and
+> recall circuits; the second gives the staged build order: X/Z safety
+> substrate, M patrol, Y write path, Y two-hop typed graph read path,
+> hippocampus relation build, then E-axis shadow scoring and production cron.
 
 ### Quick Automation Map
 
@@ -95,6 +97,7 @@ For the full checklist, read
 > The next sections describe the minimal impl in detail. For the
 > production impl, the entry points are
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) (the pipeline),
+> [docs/CONNECTING_XYZEM.md](docs/CONNECTING_XYZEM.md) (how the five axes connect),
 > [docs/AUTOMATION_BOUNDARIES.md](docs/AUTOMATION_BOUNDARIES.md) (what runs by itself),
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md) (six policy switches),
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md) (backend + embedder choices),
@@ -687,6 +690,7 @@ extras/pgvector_backend/             # PRODUCTION reference impl — PG + ANN + 
 
 docs/
   architecture.md                    # core XYZEM architecture
+  CONNECTING_XYZEM.md                # how the five axes connect into one lifecycle
   IMPLEMENTATION_ORDER.md            # staged build order + acceptance checklist
   xyzem_consolidation.md             # how chunks become curated memories
   PERSONA_MODE.md                    # six policy switches for AI companion deployments

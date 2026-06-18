@@ -61,8 +61,10 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 > "做完代码就以为完事"是这个仓库最常见的运维洞——不是你写慢了,是没人告诉你还得跑这一步。
 >
 > 如果你是在大项目里从零接 LMC-5，先看
-> [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)。它按阶段说明
-> 先做 X/Z 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
+> [`docs/CONNECTING_XYZEM.md`](docs/CONNECTING_XYZEM.md)，再看
+> [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)。前者解释
+> **五轴如何接成写入、夜间、召回三条闭环**；后者按阶段说明先做 X/Z
+> 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
 > hippocampus 关系构建、E 轴 shadow scoring 和 production cron。
 
 ### 五线自动化速查
@@ -83,6 +85,7 @@ LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron
 
 > 接下来的章节详细介绍 minimal 实现。Production 实现的入口文档：
 > [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)（管道层）、
+> [docs/CONNECTING_XYZEM.md](docs/CONNECTING_XYZEM.md)（五轴如何真正接起来）、
 > [docs/AUTOMATION_BOUNDARIES.md](docs/AUTOMATION_BOUNDARIES.md)（哪些会自动跑、哪些不能自动改）、
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md)（六个开关）、
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md)（后端 + embedder 选择）、
@@ -557,6 +560,7 @@ extras/pgvector_backend/             # PRODUCTION 参考实现 — PG + ANN + LL
 
 docs/
   architecture.md                    # 核心 XYZEM 架构
+  CONNECTING_XYZEM.md                # 五轴如何接成一个记忆生命周期
   IMPLEMENTATION_ORDER.md            # 分阶段实现顺序 + 完成验收清单
   xyzem_consolidation.md             # chunk → curated 的工程逻辑
   PERSONA_MODE.md                    # 给 AI 伴侣部署的六个策略开关
