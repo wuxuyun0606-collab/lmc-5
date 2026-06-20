@@ -30,7 +30,7 @@
     runner = DreamRunner(
         consolidate=my_consolidate_fn,
         hippocampus=my_hippocampus_fn,
-        heartbeat_detect=my_heartbeat_fn,
+        heartbeat_detect=my_heartbeat_fn,  # detector candidates only; no curated direct insert
         timeline_sweep=my_thread_cleanup_fn,
         timeline_threads=["safety", "engineering", "frontend", "other"],
         narrative_weekly=my_weekly_fn,
@@ -166,7 +166,8 @@ class DreamRunner:
     Args:
         consolidate:        () -> Any   原始事件 → chunks
         hippocampus:        () -> Any   chunks → 候选记忆（dry-run 或 apply）
-        heartbeat_detect:   () -> Any   chunks → 心跳时刻 + 情绪碎片检测
+        heartbeat_detect:   () -> Any   chunks → detector candidates only. It must not write
+                               raw heartbeat_detector output directly to curated memories.
         timeline_sweep:     (thread) -> Any 逐条 X 线整理/反思/清理
         narrative_weekly:   () -> Any   生成本周叙事索引
         narrative_monthly:  () -> Any   生成本月叙事索引

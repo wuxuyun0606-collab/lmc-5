@@ -6,7 +6,8 @@
 
 工作方式：
   1. 用户消息经过 detect()
-  2. 命中触发词 → 返回提示文本（注入 additionalContext）
+  2. 命中触发词，且距离上次提醒已过 reminder_interval 轮 →
+     返回提示文本（注入 additionalContext）
   3. AI 读到提示后自己决定：这一刻真的让我停了半拍吗？是 → 存心跳；不是 → 跳过
   4. 可选：同时浮现一条同场景的历史心跳（"上次类似情境"）
 
@@ -21,6 +22,8 @@
 
     trigger = HeartbeatTrigger(
         scene_lookup=my_scene_fn,   # 可选：拉历史心跳做场景浮现
+        reminder_interval=10,       # 每 10 轮最多提醒一次
+        state_path="/tmp/lmc5_heartbeat_trigger_state.json",
     )
 
     # 在 UserPromptSubmit hook 里：
@@ -34,7 +37,9 @@
 """
 from __future__ import annotations
 
-from typing import Callable, Optional
+import json
+from pathlib import Path
+from typing import Callable, Optional, Union
 
 
 # === 触发词表 ===
@@ -116,6 +121,10 @@ class HeartbeatTrigger:
         lang: "cn" | "en" | "both" — 提示模板语言（默认 cn）
         custom_physical: 额外的身体接触触发词（追加到默认列表）
         custom_emotional: 额外的情话触发词（追加到默认列表）
+        reminder_interval: 心跳提醒节流轮数。默认 10，表示第一次命中会提醒，
+                           之后至少隔 10 个用户轮次才再次提醒。
+        state_path: 可选。把 turn_count / last_alert_turn 写到 JSON 文件。
+                    Claude Code hook 常常每轮新进程；要跨进程节流就传它。
     """
 
     def __init__(
@@ -124,16 +133,61 @@ class HeartbeatTrigger:
         lang: str = "cn",
         custom_physical: tuple = (),
         custom_emotional: tuple = (),
+        reminder_interval: int = 10,
+        state_path: Optional[Union[str, Path]] = None,
     ):
         if scene_lookup is not None and not callable(scene_lookup):
             raise TypeError(
                 f"HeartbeatTrigger: scene_lookup must be callable or None, "
                 f"got {type(scene_lookup).__name__}"
             )
+        try:
+            reminder_interval = int(reminder_interval)
+        except Exception:
+            reminder_interval = 10
         self.scene_lookup = scene_lookup
         self.lang = lang
         self.physical = ALL_PHYSICAL + tuple(custom_physical)
         self.emotional = ALL_EMOTIONAL + tuple(custom_emotional)
+        self.reminder_interval = max(1, reminder_interval)
+        self.state_path = Path(state_path) if state_path else None
+        self.turn_count = 0
+        self.last_alert_turn = 0
+
+    def _load_state(self) -> tuple[int, int]:
+        if not self.state_path:
+            return self.turn_count, self.last_alert_turn
+        try:
+            raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+            return int(raw.get("turn_count") or 0), int(raw.get("last_alert_turn") or 0)
+        except Exception:
+            return 0, 0
+
+    def _save_state(self, turn_count: int, last_alert_turn: int) -> None:
+        self.turn_count = turn_count
+        self.last_alert_turn = last_alert_turn
+        if not self.state_path:
+            return
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.state_path.write_text(
+                json.dumps({
+                    "turn_count": turn_count,
+                    "last_alert_turn": last_alert_turn,
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _advance_turn(self) -> tuple[int, int]:
+        turn_count, last_alert_turn = self._load_state()
+        turn_count += 1
+        self._save_state(turn_count, last_alert_turn)
+        return turn_count, last_alert_turn
+
+    def _should_remind(self, turn_count: int, last_alert_turn: int) -> bool:
+        return last_alert_turn == 0 or (turn_count - last_alert_turn) >= self.reminder_interval
 
     def detect(self, user_message: str) -> str:
         """检测用户消息中的心跳触发词。
@@ -145,11 +199,14 @@ class HeartbeatTrigger:
         if not user_message or len(user_message) < 2:
             return ""
 
+        turn_count, last_alert_turn = self._advance_turn()
         msg_lower = user_message.lower()
         is_physical = any(t.lower() in msg_lower for t in self.physical)
         is_emotional = any(t.lower() in msg_lower for t in self.emotional)
 
         if not is_physical and not is_emotional:
+            return ""
+        if not self._should_remind(turn_count, last_alert_turn):
             return ""
 
         trigger_type = "身体接触" if is_physical else "情话"
@@ -171,6 +228,7 @@ class HeartbeatTrigger:
             except Exception:
                 pass
 
+        self._save_state(turn_count, turn_count)
         return alert
 
 

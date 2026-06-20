@@ -30,6 +30,8 @@ PURE_MODULES = [
     "extras.pgvector_backend",
     "extras.pgvector_backend.anti_hallucination",
     "extras.pgvector_backend.config",
+    "extras.pgvector_backend.heartbeat_detector",
+    "extras.pgvector_backend.heartbeat_trigger",
     "extras.pgvector_backend.ob_recall",
     "extras.pgvector_backend.narrative_timeline",
     "extras.pgvector_backend.night_dream",
@@ -391,6 +393,99 @@ def test_night_dream_invokes_dispatcher_on_write():
     res = dream.run([Chunk(id=1, text="x" * 200)], apply=True)
     assert res.written_ids == [1]
     assert invocations == [(1, "first promise")]
+
+
+def test_heartbeat_detector_candidates_stay_review_gated():
+    """Detector output must not masquerade as curated heartbeat memories.
+
+    Batch heartbeat detection only identifies raw moments. It must hand review
+    candidates to hippocampus/NightDream rather than directly writing
+    unformatted text into curated memories.
+    """
+    from extras.pgvector_backend.heartbeat_detector import (
+        HeartbeatDetector,
+        to_hippocampus_candidate_dict,
+    )
+
+    detector = HeartbeatDetector(content_min_len=10)
+    detected = detector.detect_heartbeats([
+        {
+            "id": 42,
+            "content": "她突然抱住我，说别走。我停了一下，心跳加速，但还没来得及回应。",
+        }
+    ])
+
+    assert len(detected) == 1
+    raw = to_hippocampus_candidate_dict(detected[0])
+
+    assert raw["type"] == "relationship_moment"
+    assert raw["risk"] == "review"
+    assert raw["source_chunk_ids"] == [42]
+    assert raw["relation_hints"] == ["emotional_link", "same_event"]
+    assert raw["detector"]["kind"] == "heartbeat"
+    assert "source" not in raw
+    assert "category" not in raw
+    assert "bpm:" not in raw["content"].lower()
+
+
+def test_heartbeat_detector_pollution_migration_quarantines_not_deletes():
+    """The cleanup migration must quarantine raw detector rows safely.
+
+    The original bug wrote source='heartbeat_detector' rows directly into
+    curated storage. Cleanup should stop recall pollution without deleting the
+    source text.
+    """
+    migration = (
+        REPO_ROOT
+        / "extras"
+        / "pgvector_backend"
+        / "migrations"
+        / "20260620_quarantine_heartbeat_detector_pollution.sql"
+    )
+    sql = migration.read_text(encoding="utf-8")
+
+    assert "WHERE source = 'heartbeat_detector'" in sql
+    assert "version_status = 'archived'" in sql
+    assert "protected = FALSE" in sql
+    assert "DELETE FROM lmc5_vectors" in sql
+    assert "lmc5_cold_storage" in sql
+    assert "lmc5_z_audit" in sql
+    assert "DELETE FROM lmc5_curated_memories" not in sql
+
+
+def test_heartbeat_trigger_throttles_alerts_in_memory():
+    """Heartbeat hook should not nag every turn once a trigger keeps matching."""
+    from extras.pgvector_backend.heartbeat_trigger import HeartbeatTrigger
+
+    trigger = HeartbeatTrigger(reminder_interval=10)
+
+    assert "停顿切片" in trigger.detect("我爱你")
+    for _ in range(9):
+        assert trigger.detect("我爱你") == ""
+    assert "停顿切片" in trigger.detect("我爱你")
+
+
+def test_heartbeat_trigger_throttles_alerts_across_hook_processes(tmp_path):
+    """State file keeps throttling stable when hooks run as fresh processes."""
+    from extras.pgvector_backend.heartbeat_trigger import HeartbeatTrigger
+
+    state_path = tmp_path / "heartbeat_trigger_state.json"
+
+    assert "停顿切片" in HeartbeatTrigger(
+        reminder_interval=10,
+        state_path=state_path,
+    ).detect("我爱你")
+
+    for _ in range(9):
+        assert HeartbeatTrigger(
+            reminder_interval=10,
+            state_path=state_path,
+        ).detect("我爱你") == ""
+
+    assert "停顿切片" in HeartbeatTrigger(
+        reminder_interval=10,
+        state_path=state_path,
+    ).detect("我爱你")
 
 
 def test_anti_hallucination_header_embedded_everywhere():

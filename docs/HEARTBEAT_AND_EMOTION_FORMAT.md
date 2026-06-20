@@ -210,12 +210,33 @@ memories when the user's message carries valence/arousal signals.
 
 | Module | When | How |
 |--------|------|-----|
-| `heartbeat_trigger.py` | Real-time (per user message) | Keyword gate → alert in additionalContext → AI decides to save or skip |
-| `heartbeat_detector.py` | Batch (nightly dream pass) | Keyword gate + optional LLM confirm → candidates for hippocampus |
+| `heartbeat_trigger.py` | Real-time hook (per user message) | Keyword gate + default 10-turn reminder throttle → alert in additionalContext → AI decides to save or skip |
+| `heartbeat_detector.py` | Batch (nightly dream pass) | Keyword gate + optional LLM confirm → detector candidates → `to_hippocampus_candidate_dict()` → hippocampus/NightDream review |
 
-The real-time trigger is the primary path for persona deployments. The batch
-detector is the safety net — it catches moments the trigger missed because
-the keyword list wasn't broad enough.
+The real-time trigger is the primary path for persona deployments. It still
+runs on each user message, but it should not nag every turn: the default
+`reminder_interval` is 10 turns, and deployments that launch hooks as fresh
+processes should pass a stable `state_path` so the throttle survives between
+hook invocations. The batch detector is the safety net — it catches moments
+the trigger missed because the keyword list wasn't broad enough. Batch detector
+output is raw evidence, not a formatted heartbeat memory; never write it
+directly into `lmc5_curated_memories`.
+
+### Cleaning old detector pollution
+
+If an older nightly job wrote detector output directly into curated storage,
+you will usually see rows like:
+
+- `source = 'heartbeat_detector'`
+- `category = 'heartbeat'` or another persona category
+- `content` containing a long raw transcript excerpt rather than the canonical
+  heartbeat / fragment format
+
+Those rows should be quarantined, not manually rewritten. Run the migration at
+`extras/pgvector_backend/migrations/20260620_quarantine_heartbeat_detector_pollution.sql`.
+It archives the polluted rows, removes their vector entries so vector recall
+does not surface them, closes relation edges, and records an audit trail. It
+does **not** delete the original text.
 
 ---
 

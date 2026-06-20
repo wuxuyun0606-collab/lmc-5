@@ -8,19 +8,24 @@ hippocampus 的 LLM proposer 擅长提取 fact/event/preference，但不知道
   - provider-free 默认：只走关键词 + 规则，不调 LLM
   - 可选 LLM 二次确认：传 llm_confirm callable，让模型判断"这真的是
     心跳时刻吗"——降低关键词的误报率
-  - 输出 HeartbeatCandidate / EmotionCandidate，可直接喂给 hippocampus
-    的 write_candidate 回调
+  - 输出 HeartbeatCandidate / EmotionCandidate；这些是候选，不是 curated
+    memory row。先用 to_hippocampus_candidate_dict() 转成 hippocampus/
+    NightDream 候选，再交给对应 proposer/write_candidate 流程
   - 候选自带 protected=True（心跳和情绪碎片永不被代谢扫掉）
 
 集成：
-    from extras.pgvector_backend.heartbeat_detector import HeartbeatDetector
+    from extras.pgvector_backend.heartbeat_detector import (
+        HeartbeatDetector,
+        to_hippocampus_candidate_dict,
+    )
 
     detector = HeartbeatDetector(
         llm_confirm=my_llm_fn,  # 可选
     )
     candidates = detector.detect(chunks)
-    for c in candidates:
-        write_candidate(c)  # 同 hippocampus 的写入回调
+    proposer_output = [to_hippocampus_candidate_dict(c) for c in candidates]
+    # proposer_output 交给 hippocampus/NightDream 继续闸门判断；
+    # 不要把 detector 的原文片段直接 INSERT 到 curated memories。
 """
 from __future__ import annotations
 
@@ -110,6 +115,54 @@ class EmotionCandidate:
     matched_keywords: list[str] = field(default_factory=list)
     llm_confirmed: bool = False
     source_chunk_id: Optional[int] = None
+
+
+def to_hippocampus_candidate_dict(candidate: Any) -> dict[str, Any]:
+    """Convert detector output to a NightDream/hippocampus candidate dict.
+
+    Detector candidates are intentionally *not* curated memory rows. The
+    detector only knows that a raw chunk looks like a heartbeat/emotional
+    moment; it does not know the final BPM, E tag, chord, or narrative format.
+    Returning a review-risk candidate keeps the raw evidence available for the
+    hippocampus layer without polluting ``lmc5_curated_memories`` with
+    unstructured detector text.
+    """
+
+    cand_type = getattr(candidate, "type", "")
+    is_heartbeat = cand_type == "heartbeat"
+    source_chunk_id = getattr(candidate, "source_chunk_id", None)
+    source_chunk_ids: list[int] = []
+    if source_chunk_id is not None:
+        try:
+            source_chunk_ids.append(int(source_chunk_id))
+        except Exception:
+            pass
+
+    matched = list(getattr(candidate, "matched_keywords", []) or [])
+    evidence = (getattr(candidate, "content", "") or "").strip().splitlines()
+    evidence_text = evidence[0].strip() if evidence else ""
+
+    return {
+        "type": "relationship_moment" if is_heartbeat else "event",
+        "title": getattr(candidate, "title", "") or (
+            "heartbeat candidate" if is_heartbeat else "emotion candidate"
+        ),
+        "content": getattr(candidate, "content", "") or "",
+        "importance": max(1, min(10, round(float(getattr(candidate, "importance", 0.5)) * 10))),
+        # Detector output is raw evidence. Keep it review-gated unless a later
+        # hippocampus writer formats it into the canonical heartbeat/fragment
+        # schema without inventing BPM/E/chord values.
+        "risk": "review",
+        "evidence": evidence_text[:160] or (getattr(candidate, "title", "") or "")[:160],
+        "source_chunk_ids": source_chunk_ids,
+        "relation_hints": ["emotional_link", "same_event"] if is_heartbeat else ["emotional_link"],
+        "thread_hint": "relationship" if is_heartbeat else "emotion",
+        "detector": {
+            "kind": cand_type,
+            "matched_keywords": matched,
+            "llm_confirmed": bool(getattr(candidate, "llm_confirmed", False)),
+        },
+    }
 
 
 def _match_keywords(text: str, keywords: tuple) -> list[str]:
