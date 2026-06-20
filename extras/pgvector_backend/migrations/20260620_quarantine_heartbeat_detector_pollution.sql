@@ -12,6 +12,8 @@
 -- - It copies the original rows to lmc5_cold_storage when available.
 -- - It removes stale vector rows and closes relation edges pointing at them,
 --   because vector recall may not be able to see version_status.
+-- - The audit content_hash uses chr(31) (unit separator), not a NUL byte.
+--   PostgreSQL text cannot contain NUL bytes.
 --
 -- Preview before applying:
 --   SELECT id, source, category, title, left(content, 120) AS preview
@@ -41,9 +43,9 @@ INSERT INTO lmc5_z_audit (
 SELECT
     'quarantine:heartbeat_detector:' || cm.id::text,
     md5(
-        coalesce(cm.source, '') || chr(0) ||
-        coalesce(cm.category, '') || chr(0) ||
-        coalesce(cm.title, '') || chr(0) ||
+        coalesce(cm.source, '') || chr(31) ||
+        coalesce(cm.category, '') || chr(31) ||
+        coalesce(cm.title, '') || chr(31) ||
         coalesce(cm.content, '')
     ),
     'archive_polluted_detector_row',

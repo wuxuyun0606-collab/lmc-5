@@ -448,6 +448,8 @@ def test_heartbeat_detector_pollution_migration_quarantines_not_deletes():
     assert "version_status = 'archived'" in sql
     assert "protected = FALSE" in sql
     assert "DELETE FROM lmc5_vectors" in sql
+    assert "chr(31)" in sql
+    assert "chr(0)" not in sql
     assert "lmc5_cold_storage" in sql
     assert "lmc5_z_audit" in sql
     assert "DELETE FROM lmc5_curated_memories" not in sql
