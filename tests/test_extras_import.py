@@ -313,6 +313,41 @@ def test_raw_events_namespace_does_not_collide_with_curated_ids():
     assert {h.title for h in hits} == {"curated", "raw"}
 
 
+def test_recall_pipeline_explain_trace_merges_score_breakdowns():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="same", content="semantic",
+                          score=0.20, channel="vector")]
+
+    def fake_fts(q, k):
+        return [RecallHit(source_id=1, title="same", content="keyword",
+                          score=0.55, channel="fts")]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        fts_search=fake_fts,
+        fts_floor=0.45,
+    )
+    result = pipeline.recall("deployment")
+
+    assert result.hits
+    hit = result.hits[0]
+    breakdown = hit.metadata["score_breakdown"]
+    assert breakdown["semantic"] == 0.2
+    assert breakdown["keyword"] == 0.55
+    assert breakdown["final"] == hit.score
+    assert hit.metadata["injected"] is True
+    assert hit.metadata["rank"] == 1
+    assert set(hit.metadata["channels"]) == {"fts", "vector"}
+
+    trace_hit = result.trace["hits"][0]
+    assert trace_hit["source_id"] == 1
+    assert trace_hit["score_breakdown"]["semantic"] == 0.2
+    assert trace_hit["score_breakdown"]["keyword"] == 0.55
+    assert set(trace_hit["channels"]) == {"fts", "vector"}
+
+
 def test_literal_query_terms_extracts_chinese_specific_term():
     from extras.pgvector_backend.recall_pipeline import (
         literal_query_terms,

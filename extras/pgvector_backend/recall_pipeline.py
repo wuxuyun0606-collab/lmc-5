@@ -28,6 +28,56 @@ _GENERIC_CJK_LITERAL_STOPS = (
     "今天", "刚才", "现在", "什么", "怎么", "为什么", "是不是", "可以",
     "需要", "感觉", "觉得", "想要", "开心", "难过", "很累", "继续",
 )
+_SCORE_COMPONENT_BY_CHANNEL = {
+    "vector": "semantic",
+    "fts": "keyword",
+    "literal": "literal",
+    "raw_events": "raw_events",
+    "raw_chunk": "recent_raw_chunk",
+    "graph": "relation",
+    "emotion": "emotion",
+    "perception": "perception",
+}
+
+
+def _round_score(value: float) -> float:
+    return round(float(value or 0.0), 3)
+
+
+def _score_component(channel_name: str, hit: "RecallHit") -> str:
+    return _SCORE_COMPONENT_BY_CHANNEL.get(
+        hit.channel,
+        _SCORE_COMPONENT_BY_CHANNEL.get(channel_name, channel_name),
+    )
+
+
+def _annotate_score_breakdown(channel_name: str, hit: "RecallHit") -> None:
+    breakdown = hit.metadata.get("score_breakdown")
+    if not isinstance(breakdown, dict):
+        breakdown = {}
+        hit.metadata["score_breakdown"] = breakdown
+    component = _score_component(channel_name, hit)
+    breakdown.setdefault(component, _round_score(hit.score))
+
+
+def _merge_score_breakdown(target: "RecallHit", source: "RecallHit") -> None:
+    target_breakdown = target.metadata.setdefault("score_breakdown", {})
+    if not isinstance(target_breakdown, dict):
+        target_breakdown = {}
+        target.metadata["score_breakdown"] = target_breakdown
+    source_breakdown = source.metadata.get("score_breakdown", {})
+    if not isinstance(source_breakdown, dict):
+        return
+    for key, value in source_breakdown.items():
+        try:
+            score = _round_score(float(value))
+        except (TypeError, ValueError):
+            continue
+        try:
+            existing_score = _round_score(float(target_breakdown.get(key, 0.0)))
+        except (TypeError, ValueError):
+            existing_score = 0.0
+        target_breakdown[key] = max(existing_score, score)
 
 
 def should_run_literal_search(query: str, max_chars: int = 80) -> bool:
@@ -138,6 +188,7 @@ class RecallResult:
     channels_used: list[str]
     injection_text: str
     channel_counts: dict[str, int] = field(default_factory=dict)
+    trace: dict = field(default_factory=dict)
 
 
 class RecallPipeline:
@@ -266,7 +317,10 @@ class RecallPipeline:
         log = logging.getLogger("lmc5.recall_pipeline")
         try:
             result = fn(*args) or []
-            return [h for h in result if isinstance(h, RecallHit)]
+            hits = [h for h in result if isinstance(h, RecallHit)]
+            for hit in hits:
+                _annotate_score_breakdown(name, hit)
+            return hits
         except Exception as e:
             log.warning("recall channel '%s' failed: %s", name, e)
             return []
@@ -299,6 +353,7 @@ class RecallPipeline:
                         existing.score = h.score
                     existing.metadata.setdefault("channels", set()).add(h.channel)
                     existing.metadata["channels"].add(channel_name)
+                    _merge_score_breakdown(existing, h)
                 else:
                     h.metadata.setdefault("channels", set()).add(h.channel)
                     merged[key] = h
@@ -324,6 +379,37 @@ class RecallPipeline:
             lines.append(line)
             used += len(line) + 1
         return "\n".join(lines)
+
+    def _build_trace(
+        self,
+        query: str,
+        queries: list[str],
+        channels_used: list[str],
+        channel_counts: dict[str, int],
+        hits: list[RecallHit],
+    ) -> dict:
+        """Build a compact explain trace without copying recalled content."""
+        trace_hits = []
+        for rank, hit in enumerate(hits, start=1):
+            breakdown = hit.metadata.get("score_breakdown", {})
+            if not isinstance(breakdown, dict):
+                breakdown = {}
+            trace_hits.append({
+                "rank": rank,
+                "namespace": self._dedup_key(hit)[0],
+                "source_id": hit.source_id,
+                "title": hit.title[:80],
+                "score": _round_score(hit.score),
+                "score_breakdown": breakdown,
+                "channels": hit.metadata.get("channels", [hit.channel]),
+            })
+        return {
+            "query_preview": str(query or "")[:160],
+            "expanded_queries": [str(q)[:160] for q in queries],
+            "channels_used": channels_used,
+            "channel_counts": channel_counts,
+            "hits": trace_hits,
+        }
 
     def recall(
         self,
@@ -480,12 +566,21 @@ class RecallPipeline:
             merged.sort(key=lambda h: h.score, reverse=True)
             merged = merged[:self.final_top_k]
 
+        for rank, hit in enumerate(merged, start=1):
+            breakdown = hit.metadata.setdefault("score_breakdown", {})
+            if isinstance(breakdown, dict):
+                breakdown["final"] = _round_score(hit.score)
+            hit.metadata["injected"] = True
+            hit.metadata["rank"] = rank
+
         injection_text = self._build_injection_text(merged)
+        trace = self._build_trace(query, queries, channels_used, channel_counts, merged)
         return RecallResult(
             hits=merged,
             channels_used=channels_used,
             injection_text=injection_text,
             channel_counts=channel_counts,
+            trace=trace,
         )
 
 

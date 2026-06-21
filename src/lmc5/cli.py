@@ -210,8 +210,19 @@ def cmd_recall(args: argparse.Namespace) -> None:
             limit=args.limit,
             redact=True,
             expand_relations=not args.no_relations,
+            trace=not args.no_trace,
         )
     _print_json(rows)
+
+
+def cmd_recall_traces(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        rows = store.list_recall_traces(
+            limit=args.limit,
+            memory_id=args.memory_id,
+        )
+    _print_json(redact_obj(rows))
 
 
 def cmd_list(args: argparse.Namespace) -> None:
@@ -426,7 +437,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="disable two-hop typed relation expansion",
     )
+    p_recall.add_argument(
+        "--no-trace",
+        action="store_true",
+        help="skip writing recall explain trace rows",
+    )
     p_recall.set_defaults(func=cmd_recall)
+
+    p_recall_traces = sub.add_parser(
+        "recall-traces",
+        parents=[parent],
+        help="list recent recall explain trace rows",
+    )
+    p_recall_traces.add_argument("--limit", type=int, default=20)
+    p_recall_traces.add_argument("--memory-id", type=int)
+    p_recall_traces.set_defaults(func=cmd_recall_traces)
 
     p_list = sub.add_parser("list", parents=[parent], help="list recent memories")
     p_list.add_argument("--limit", type=int, default=20)

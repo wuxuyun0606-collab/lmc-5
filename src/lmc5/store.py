@@ -62,6 +62,18 @@ def _event_hash(role: str, content: str, channel: str, metadata_json: str) -> st
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
+def _query_hash(query: str) -> str:
+    normalized = " ".join(str(query or "").split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _query_preview(query: str, max_chars: int = 160) -> str:
+    normalized = " ".join(str(query or "").split())
+    preview = normalized[:max_chars]
+    redacted = redact_obj(preview)
+    return redacted if isinstance(redacted, str) else str(redacted)
+
+
 def _json_list(values: Iterable[str] | None) -> str:
     clean = [str(value).strip() for value in values or [] if str(value).strip()]
     return json.dumps(sorted(set(clean)), ensure_ascii=False)
@@ -98,6 +110,31 @@ def _relation_score(relation_type: str, strength: float, *, depth: int) -> float
     type_weight = RELATION_TYPE_WEIGHTS.get(relation_type, 0.5)
     depth_weight = RELATION_DEPTH_WEIGHTS.get(depth, 0.0)
     return bounded_strength * type_weight * depth_weight
+
+
+def _recall_score_breakdown(
+    record: MemoryRecord,
+    *,
+    match_score: float,
+    relation_score: float,
+    reasons: list[str],
+) -> dict[str, float]:
+    priority = priority_score(record)
+    final = priority + match_score + relation_score
+    breakdown: dict[str, float] = {
+        "priority": round(priority, 3),
+        "relation": round(relation_score, 3),
+        "final": round(final, 3),
+    }
+    if "fts" in reasons:
+        breakdown["keyword"] = round(match_score, 3)
+    elif "like" in reasons:
+        breakdown["literal"] = round(match_score, 3)
+    elif "recent" in reasons:
+        breakdown["recency"] = round(match_score, 3)
+    elif match_score:
+        breakdown["match"] = round(match_score, 3)
+    return breakdown
 
 
 def _validate_optional_range(name: str, value: float | None, minimum: float, maximum: float) -> None:
@@ -336,6 +373,40 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
 
             CREATE INDEX IF NOT EXISTS idx_z_conflict_audits_status
               ON z_conflict_audits(status, verdict);
+
+            CREATE TABLE IF NOT EXISTS recall_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_hash TEXT NOT NULL,
+                query_preview TEXT NOT NULL DEFAULT '',
+                limit_requested INTEGER NOT NULL,
+                selected_count INTEGER NOT NULL DEFAULT 0,
+                expand_relations INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_recall_runs_created
+              ON recall_runs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_recall_runs_query
+              ON recall_runs(query_hash, created_at);
+
+            CREATE TABLE IF NOT EXISTS recall_trace_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES recall_runs(id) ON DELETE CASCADE,
+                memory_id INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+                rank INTEGER NOT NULL,
+                injected INTEGER NOT NULL DEFAULT 1,
+                score REAL NOT NULL,
+                score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+                reasons_json TEXT NOT NULL DEFAULT '[]',
+                related_from_json TEXT NOT NULL DEFAULT '[]',
+                trace_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_recall_trace_items_run
+              ON recall_trace_items(run_id, rank);
+            CREATE INDEX IF NOT EXISTS idx_recall_trace_items_memory
+              ON recall_trace_items(memory_id, created_at);
             """
         )
         self.rebuild_index()
@@ -1078,12 +1149,119 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             frontier = next_frontier - base_set
         return expanded
 
+    def _record_recall_trace(
+        self,
+        query: str,
+        hits: list[RecallHit],
+        *,
+        limit: int,
+        expand_relations: bool,
+    ) -> int:
+        cur = self.conn.execute(
+            """
+            INSERT INTO recall_runs (
+                query_hash, query_preview, limit_requested, selected_count, expand_relations
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                _query_hash(query),
+                _query_preview(query),
+                int(limit),
+                len(hits),
+                1 if expand_relations else 0,
+            ),
+        )
+        run_id = int(cur.lastrowid)
+        self.conn.executemany(
+            """
+            INSERT INTO recall_trace_items (
+                run_id, memory_id, rank, injected, score, score_breakdown_json,
+                reasons_json, related_from_json, trace_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    run_id,
+                    hit.record.id,
+                    rank,
+                    1,
+                    hit.score,
+                    json.dumps(hit.score_breakdown, ensure_ascii=False, sort_keys=True),
+                    json.dumps(hit.reasons, ensure_ascii=False, sort_keys=True),
+                    json.dumps(hit.related_from, ensure_ascii=False, sort_keys=True),
+                    json.dumps(hit.trace, ensure_ascii=False, sort_keys=True),
+                )
+                for rank, hit in enumerate(hits, start=1)
+            ],
+        )
+        return run_id
+
+    def list_recall_traces(
+        self,
+        limit: int = 20,
+        *,
+        memory_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = ["i.memory_id IS NOT NULL"]
+        params: list[object] = []
+        if memory_id is not None:
+            clauses.append("i.memory_id = ?")
+            params.append(int(memory_id))
+        rows = self.conn.execute(
+            f"""
+            SELECT r.id AS run_id,
+                   r.query_hash,
+                   r.query_preview,
+                   r.limit_requested,
+                   r.selected_count,
+                   r.expand_relations,
+                   r.created_at AS run_created_at,
+                   i.memory_id,
+                   i.rank,
+                   i.injected,
+                   i.score,
+                   i.score_breakdown_json,
+                   i.reasons_json,
+                   i.related_from_json,
+                   i.trace_json,
+                   i.created_at AS item_created_at
+              FROM recall_trace_items i
+              JOIN recall_runs r ON r.id = i.run_id
+             WHERE {' AND '.join(clauses)}
+             ORDER BY r.created_at DESC, r.id DESC, i.rank ASC
+             LIMIT ?
+            """,
+            (*params, int(limit)),
+        ).fetchall()
+        return [
+            {
+                "run_id": row["run_id"],
+                "query_hash": row["query_hash"],
+                "query_preview": row["query_preview"],
+                "limit_requested": row["limit_requested"],
+                "selected_count": row["selected_count"],
+                "expand_relations": bool(row["expand_relations"]),
+                "run_created_at": row["run_created_at"],
+                "memory_id": row["memory_id"],
+                "rank": row["rank"],
+                "injected": bool(row["injected"]),
+                "score": row["score"],
+                "score_breakdown": json.loads(row["score_breakdown_json"] or "{}"),
+                "reasons": json.loads(row["reasons_json"] or "[]"),
+                "related_from": json.loads(row["related_from_json"] or "[]"),
+                "trace": json.loads(row["trace_json"] or "{}"),
+                "item_created_at": row["item_created_at"],
+            }
+            for row in rows
+        ]
+
     def recall_hits(
         self,
         query: str,
         limit: int = 5,
         *,
         expand_relations: bool = True,
+        trace: bool = True,
     ) -> list[RecallHit]:
         candidates = self._recall_candidates(query, limit)
         base_ids = [int(record.id) for record, _, _ in candidates if record.id is not None]
@@ -1100,15 +1278,26 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         hits: list[RecallHit] = []
         for record, match_score, reasons in candidates:
             relation_score, related_from, _ = relation_scores.get(int(record.id), (0.0, [], []))
-            score = priority_score(record) + match_score + relation_score
+            breakdown = _recall_score_breakdown(
+                record,
+                match_score=match_score,
+                relation_score=relation_score,
+                reasons=reasons,
+            )
             hits.append(
                 RecallHit(
                     record=record,
-                    score=round(score, 3),
+                    score=breakdown["final"],
                     match_score=match_score,
                     relation_score=round(relation_score, 3),
+                    score_breakdown=breakdown,
                     reasons=reasons,
                     related_from=related_from,
+                    trace={
+                        "channels": reasons,
+                        "expanded_from": related_from,
+                        "live_filter": "current_and_active_fact",
+                    },
                 )
             )
         hits.sort(key=lambda hit: (hit.score, hit.record.created_at or ""), reverse=True)
@@ -1120,7 +1309,27 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 "UPDATE memories SET hit_count = hit_count + 1 WHERE id = ?",
                 [(memory_id,) for memory_id in ids],
             )
-            self.conn.commit()
+        if trace:
+            run_id = self._record_recall_trace(
+                query,
+                selected,
+                limit=limit,
+                expand_relations=expand_relations,
+            )
+            selected = [
+                RecallHit(
+                    record=hit.record,
+                    score=hit.score,
+                    match_score=hit.match_score,
+                    relation_score=hit.relation_score,
+                    score_breakdown=hit.score_breakdown,
+                    reasons=hit.reasons,
+                    related_from=hit.related_from,
+                    trace={**hit.trace, "recall_run_id": run_id, "rank": rank},
+                )
+                for rank, hit in enumerate(selected, start=1)
+            ]
+        self.conn.commit()
         return selected
 
     def recall(
@@ -1130,10 +1339,16 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         *,
         redact: bool = False,
         expand_relations: bool = True,
+        trace: bool = True,
     ) -> list[dict[str, Any]]:
         selected = [
             hit.to_dict()
-            for hit in self.recall_hits(query, limit=limit, expand_relations=expand_relations)
+            for hit in self.recall_hits(
+                query,
+                limit=limit,
+                expand_relations=expand_relations,
+                trace=trace,
+            )
         ]
         if redact:
             return [redact_obj(item) for item in selected]

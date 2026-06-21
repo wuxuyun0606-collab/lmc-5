@@ -244,16 +244,20 @@ class RecallHit:
     score: float
     match_score: float
     relation_score: float = 0.0
+    score_breakdown: dict[str, float] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
     related_from: list[int] = field(default_factory=list)
+    trace: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = self.record.to_public_dict()
         data["score"] = self.score
         data["match_score"] = self.match_score
         data["relation_score"] = self.relation_score
+        data["score_breakdown"] = self.score_breakdown
         data["reasons"] = self.reasons
         data["related_from"] = self.related_from
+        data["trace"] = self.trace
         return data
 
 

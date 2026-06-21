@@ -151,6 +151,44 @@ def test_recall_expands_one_hop_safe_relations(tmp_path):
     assert related_row["related_from"] == [anchor.id]
 
 
+def test_recall_records_explain_trace_for_injected_hits(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        anchor, _ = store.add_memory(
+            title="Deployment rollback policy",
+            content="Always define rollback before deployment.",
+            thread="safety",
+            tags=["deploy"],
+        )
+        related, _ = store.add_memory(
+            title="Verification checklist",
+            content="Verify logs, metrics, and user-facing behavior.",
+            thread="engineering",
+        )
+        store.add_relation(anchor.id, related.id, "same_topic", reason="verification supports rollback")
+
+        rows = store.recall("deployment", limit=2)
+        traces = store.list_recall_traces(limit=10)
+
+    assert rows
+    assert all("score_breakdown" in row for row in rows)
+    assert all(row["score_breakdown"]["final"] == row["score"] for row in rows)
+
+    related_row = next(row for row in rows if row["id"] == related.id)
+    assert related_row["score_breakdown"]["relation"] == related_row["relation_score"]
+    assert related_row["trace"]["recall_run_id"]
+    assert related_row["trace"]["rank"] >= 1
+
+    trace_ids = {row["memory_id"] for row in traces}
+    assert {anchor.id, related.id} <= trace_ids
+    trace_row = next(row for row in traces if row["memory_id"] == related.id)
+    assert trace_row["query_preview"] == "deployment"
+    assert trace_row["injected"] is True
+    assert trace_row["score_breakdown"]["relation"] == related_row["relation_score"]
+    assert trace_row["related_from"] == [anchor.id]
+
+
 def test_recall_expands_two_hop_relations_with_decay(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:
