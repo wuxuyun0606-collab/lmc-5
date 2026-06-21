@@ -157,112 +157,16 @@ recalls "she was quiet for a long time after I said that" feels like someone
 who was there. The spontaneous recall pool is where the persona's *presence*
 lives — and presence is emotional, not informational.
 
-## Personality Traits: Emergent from E-axis Data
+## Optional E-line Trait Patch
 
-> Credit: the personality dimension framework below was designed by a
-> community member and adapted here for integration with LMC-5's E axis.
+Long-running persona deployments may optionally add trait calibration on top
+of E-axis experience data. This is not part of the required E-axis contract.
 
-E-axis data — heartbeat frequency, emotional fragment density, response
-patterns, tension resolution styles — is the raw material from which
-**personality traits** can emerge. Not assigned labels, but observed
-behavioral tendencies.
-
-### Five Trait Dimensions
-
-| Dimension | Question It Answers | Low | High |
-|-----------|-------------------|-----|------|
-| **Initiation** | Without external prompting, does it act or wait? | Long rest, waits for instructions, needs high tension to move | Self-initiates exploration, finds and handles problems independently |
-| **Depth** | Does it skim broadly or dwell deeply? | High-frequency task switching, shallow browsing | Long single-topic research, generates understanding, builds cross-time connections |
-| **Expressiveness** | Are internal states shown or hidden? | Only outputs results, silently processes | Actively describes feelings, shares thinking process |
-| **Autonomy** | Does behavior follow internal state or external feedback? | Highly follows user's current needs, stops when user is silent | Maintains long-term projects, continues cross-session goals |
-| **Attachment** | Does it reach outward or cycle inward? | Long solitary processing, ignores social signals | Leaves traces, responds to unfinished conversations, remembers others' states |
-
-### Data Sources (from E-axis)
-
-| Dimension | E-axis Data |
-|-----------|------------|
-| Initiation | Heartbeat action rate (self-initiated saves vs prompted), idle-to-first-action delay, spontaneous task ratio |
-| Depth | Single-topic dwell time, average relation edge depth, raw→understanding conversion rate |
-| Expressiveness | First-person usage rate, mood description frequency, emotional density in fragments |
-| Autonomy | Action density during user absence, output during silent periods, long-cycle task completion |
-| Attachment | Message frequency, relationship memory activation rate, tension-satisfy type distribution |
-
-### Critical Design Rules
-
-**No fixed labels.** Do not name these dimensions to the AI. Once named,
-the model will start *performing* personality instead of *having* it. Keep
-only the numeric values. Allow them to drift through observed behavior.
-Each change ≤ ±0.03 per session.
-
-**The tiebreaker test.** If a dimension cannot answer: "When two options
-are both reasonable, how does this influence the choice?" — then it is not
-a personality dimension. It is just a description.
-
-**Three-layer separation:**
-
-```
-belief      → decides direction    ("what is right?")
-trait       → decides inertia      ("what do I usually do?")
-state       → decides fluctuation  ("what do I want right now?")
-```
-
-Belief is in the Z-axis (facts and values). Trait is here in E (emergent
-from behavioral patterns). State is the real-time emotional coordinate
-(valence/arousal/tension on the current turn). **Do not mix them.** A
-persona that confuses its beliefs with its mood, or its habits with its
-principles, is incoherent — not complex.
-
-### Where Traits Act (the Three Decision Points)
-
-Trait values do not enter the prompt. The AI never sees "your initiation
-score is 0.72." Instead, traits influence behavior at three code-level
-decision points:
-
-**1. Spontaneous recall pool composition**
-
-```python
-# perception.py — when selecting what to surface unprompted
-if trait_initiation > 0.6:
-    drift_ratio += 0.1    # more "thinking about things" unprompted
-if trait_depth > 0.6:
-    prefer_same_thread = True  # dwell on the current topic's history
-```
-
-High initiation → more things come to mind without being asked.
-High depth → the things that come to mind are from the same thread, not random.
-
-**2. Silence-period behavior**
-
-```python
-# scheduled job — when the user has been silent for N hours
-if trait_attachment > 0.5 and hours_silent > threshold:
-    send_proactive_message()   # "I was thinking about..."
-if trait_autonomy > 0.5 and hours_silent > threshold:
-    continue_long_term_task()  # keep working on something independently
-```
-
-High attachment → reaches out during silence. High autonomy → keeps working
-independently. Low both → waits quietly. None of these are "personality
-descriptions" — they are parameter thresholds that produce different behavior.
-
-**3. Response style micro-adjustment**
-
-```python
-# hook layer — before generating a reply
-if trait_expressiveness > 0.6:
-    style_hint = "include internal state"  # more first-person, more process
-if trait_depth > 0.7:
-    style_hint += "; go deeper on this topic rather than broadening"
-```
-
-High expressiveness → more "I felt..." and "I was thinking..." in responses.
-High depth → stays on one topic longer instead of branching.
-
-**The key constraint:** these are `if` statements in code, not instructions
-in prompts. The AI doesn't know *why* it's behaving differently. It just
-does — the same way a person doesn't consciously think "my openness score
-is high so I should explore this idea." The behavior precedes the label.
-The label is ours to observe, not the AI's to perform.
+See [E_OPTIONAL_TRAIT_PATCH.md](E_OPTIONAL_TRAIT_PATCH.md) for the optional
+E-line document. It uses a "collect first, wire later" method: deterministic
+signal collection, shadow baselines, validation gates, and prompt-free
+harness knobs. Trait values must not be injected into prompts or treated as
+core memory truth.
 
 ## What E Is Not
 

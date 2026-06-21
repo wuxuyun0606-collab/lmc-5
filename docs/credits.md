@@ -15,6 +15,9 @@ LMC-5 also credits these design influences:
   needs bounded evidence units before it becomes curated memory.
 - 电脑眠眠豹老师, for the chord emotion design: affect and salience
   can be represented as composed signals rather than a single flat label.
+- 蓝螺鈿老师, for the Big Five / trait calibration patch that turns persona
+  traits into an optional E-line methodology with deterministic measurement,
+  shadow validation, and prompt-free harness wiring.
 - 离落老师, for the forge design: renewed agent sessions can
   be launched from durable memory instead of pretending one prompt can live
   forever.
@@ -52,6 +55,8 @@ stand on its own design boundaries.
 盏老师 @盏Sienna💫North 的 imprint memory 的 chunk 设计，加强了 X 叙事记忆线的设计；
 
 电脑眠眠豹 @电脑眠眠豹 老师的和弦情绪设计，让 E 线情绪记忆索引可以更加完善；
+
+感谢蓝螺鈿老师写的大五模型人格校正补丁。这部分已作为 E 线可选文档收录，不属于 LMC-5 核心 E 轴必选能力；
 
 P0Iar1s 老师 @P0lar1s 的 ombre-brain 系统，让 M 线代谢有了权重标准；
 
