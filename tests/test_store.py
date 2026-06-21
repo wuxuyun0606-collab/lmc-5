@@ -124,6 +124,23 @@ def test_recall_redacts_output(tmp_path):
     assert "postgresql://[REDACTED_DSN]" in rows[0]["content"]
 
 
+def test_recall_reinforcement_updates_hit_count_and_last_hit_at(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        memory, _ = store.add_memory(
+            title="Deployment note",
+            content="Confirm deployment rollback.",
+        )
+
+        store.recall("deployment", trace=False)
+        refreshed = store.get_memory(memory.id)
+
+    assert refreshed.hit_count == 1
+    assert refreshed.last_hit_at is not None
+    assert refreshed.to_public_dict()["last_hit_at"] == refreshed.last_hit_at
+
+
 def test_recall_expands_one_hop_safe_relations(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:

@@ -124,6 +124,7 @@ class MemoryRecord:
     created_at: str | None = None
     updated_at: str | None = None
     hit_count: int = 0
+    last_hit_at: str | None = None
     content_hash: str | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -149,6 +150,7 @@ class MemoryRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "hit_count": self.hit_count,
+            "last_hit_at": self.last_hit_at,
         }
 
 

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,20 @@ def _event_hash(role: str, content: str, channel: str, metadata_json: str) -> st
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
+def _state_hash(state_key: str, title: str, content: str, provenance_json: str) -> str:
+    base = json.dumps(
+        {
+            "state_key": state_key.strip(),
+            "title": title.strip(),
+            "content": content.strip(),
+            "provenance_json": provenance_json,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+
 def _query_hash(query: str) -> str:
     normalized = " ".join(str(query or "").split())
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -81,6 +97,148 @@ def _json_list(values: Iterable[str] | None) -> str:
 
 def _sql_like_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _normalize_entity(value: str) -> str:
+    clean = " ".join(str(value or "").strip().split())
+    if not clean:
+        return ""
+    return clean.lower() if clean.isascii() else clean
+
+
+def _entity_label(value: str) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _add_entity(
+    entities: dict[str, dict[str, Any]],
+    *,
+    label: str,
+    kind: str,
+    source: str,
+    confidence: float = 1.0,
+) -> None:
+    clean_label = _entity_label(label)
+    key = _normalize_entity(clean_label)
+    if len(key) < 2 or key in _ENTITY_STOPWORDS:
+        return
+    if key.isascii() and key.replace(".", "").replace("_", "").replace("-", "").isdigit():
+        return
+    existing = entities.get(key)
+    item = {
+        "entity_key": key,
+        "label": clean_label,
+        "kind": kind,
+        "source": source,
+        "confidence": max(0.0, min(float(confidence), 1.0)),
+    }
+    if existing is None or item["confidence"] > existing["confidence"]:
+        entities[key] = item
+
+
+def _add_text_entities(
+    entities: dict[str, dict[str, Any]],
+    text: str,
+    *,
+    source: str,
+    include_cjk_ngrams: bool = False,
+) -> None:
+    for match in _QUOTED_ENTITY_RE.finditer(text or ""):
+        _add_entity(entities, label=match.group(1), kind="phrase", source=source, confidence=0.9)
+    for token in _ASCII_ENTITY_RE.findall(text or ""):
+        normalized = _normalize_entity(token)
+        if normalized in _ENTITY_STOPWORDS:
+            continue
+        kind = "term"
+        if any(char in token for char in "._:/-") or any(char.isdigit() for char in token):
+            kind = "code"
+        _add_entity(entities, label=token, kind=kind, source=source, confidence=0.75)
+    for chunk in _CJK_ENTITY_RE.findall(text or ""):
+        if chunk in _ENTITY_STOPWORDS:
+            continue
+        _add_entity(entities, label=chunk, kind="phrase", source=source, confidence=0.7)
+        if include_cjk_ngrams and len(chunk) <= 8:
+            for size in (2, 3):
+                if len(chunk) < size:
+                    continue
+                for idx in range(0, len(chunk) - size + 1):
+                    token = chunk[idx:idx + size]
+                    if token not in _ENTITY_STOPWORDS:
+                        _add_entity(
+                            entities,
+                            label=token,
+                            kind="term",
+                            source=source,
+                            confidence=0.55,
+                        )
+
+
+def _extract_memory_entities(record: MemoryRecord) -> list[dict[str, Any]]:
+    entities: dict[str, dict[str, Any]] = {}
+    if record.fact_key:
+        _add_entity(
+            entities,
+            label=record.fact_key,
+            kind="fact_key",
+            source="fact_key",
+            confidence=1.0,
+        )
+        for part in re.split(r"[.:/_-]+", record.fact_key):
+            if len(part) >= 3:
+                _add_entity(entities, label=part, kind="fact_key_part", source="fact_key")
+    for tag in record.tags:
+        _add_entity(entities, label=tag, kind="tag", source="tag", confidence=0.95)
+    if record.thread:
+        _add_entity(entities, label=record.thread, kind="thread", source="thread", confidence=0.7)
+    _add_text_entities(entities, record.title, source="title", include_cjk_ngrams=True)
+    _add_text_entities(entities, record.content, source="content", include_cjk_ngrams=False)
+    return sorted(entities.values(), key=lambda item: (item["source"], item["entity_key"]))
+
+
+def _extract_query_entities(query: str) -> list[dict[str, Any]]:
+    entities: dict[str, dict[str, Any]] = {}
+    _add_text_entities(entities, query, source="query", include_cjk_ngrams=True)
+    return sorted(entities.values(), key=lambda item: item["entity_key"])
+
+
+def _query_temporal_intent(query: str) -> str:
+    normalized = _normalize_entity(query)
+    if not normalized:
+        return ""
+    if any(term in normalized for term in TEMPORAL_RECENT_TERMS):
+        return "recent"
+    return ""
+
+
+def _is_query_control_term(term: str) -> bool:
+    clean = _normalize_entity(term).strip(".,!?;:，。！？；：")
+    return clean in TEMPORAL_RECENT_TERMS
+
+
+def _parse_sqlite_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _temporal_boost(record: MemoryRecord, intent: str) -> float:
+    if intent != "recent":
+        return 0.0
+    anchor = _parse_sqlite_time(record.updated_at) or _parse_sqlite_time(record.created_at)
+    if anchor is None:
+        return 0.0
+    now = datetime.now(timezone.utc)
+    age_days = max(0.0, (now - anchor.astimezone(timezone.utc)).total_seconds() / 86400)
+    if age_days <= 1:
+        return 0.25
+    if age_days <= 7:
+        return 0.18
+    if age_days <= 30:
+        return 0.10
+    return 0.0
 
 
 RELATION_TYPE_WEIGHTS = {
@@ -103,6 +261,70 @@ RELATION_TYPE_WEIGHTS = {
 RELATION_DEPTH_WEIGHTS = {1: 0.35, 2: 0.16}
 RELATION_MIN_STRENGTH = {1: 0.4, 2: 0.7}
 LIVE_MEMORY_SQL = "status = 'current' AND (fact_key IS NULL OR active_fact = 1)"
+ENTITY_SOURCE_WEIGHTS = {
+    "fact_key": 0.28,
+    "tag": 0.22,
+    "title": 0.18,
+    "thread": 0.12,
+    "content": 0.08,
+}
+ENTITY_MAX_BOOST = 0.5
+TEMPORAL_RECENT_TERMS = {
+    "current",
+    "latest",
+    "newest",
+    "now",
+    "recent",
+    "today",
+    "当前",
+    "刚才",
+    "今天",
+    "最近",
+    "最新",
+    "现在",
+}
+_ASCII_ENTITY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.:/-]{2,}")
+_CJK_ENTITY_RE = re.compile(r"[\u4e00-\u9fff]{2,12}")
+_QUOTED_ENTITY_RE = re.compile(r"[\"'`]([^\"'`]{2,80})[\"'`]")
+_ENTITY_STOPWORDS = {
+    "about",
+    "after",
+    "also",
+    "before",
+    "current",
+    "default",
+    "during",
+    "false",
+    "from",
+    "have",
+    "into",
+    "latest",
+    "local",
+    "memory",
+    "normal",
+    "other",
+    "review",
+    "should",
+    "status",
+    "that",
+    "their",
+    "there",
+    "this",
+    "true",
+    "with",
+    "今天",
+    "刚才",
+    "现在",
+    "什么",
+    "怎么",
+    "为什么",
+    "是不是",
+    "可以",
+    "需要",
+    "感觉",
+    "觉得",
+    "继续",
+}
 
 
 def _relation_score(relation_type: str, strength: float, *, depth: int) -> float:
@@ -117,13 +339,17 @@ def _recall_score_breakdown(
     *,
     match_score: float,
     relation_score: float,
+    entity_score: float,
+    temporal_score: float,
     reasons: list[str],
 ) -> dict[str, float]:
     priority = priority_score(record)
-    final = priority + match_score + relation_score
+    final = priority + match_score + relation_score + entity_score + temporal_score
     breakdown: dict[str, float] = {
         "priority": round(priority, 3),
         "relation": round(relation_score, 3),
+        "entity_boost": round(entity_score, 3),
+        "temporal_boost": round(temporal_score, 3),
         "final": round(final, 3),
     }
     if "fts" in reasons:
@@ -167,6 +393,7 @@ def _row_to_memory(row: sqlite3.Row) -> MemoryRecord:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         hit_count=row["hit_count"],
+        last_hit_at=row["last_hit_at"] if "last_hit_at" in row.keys() else None,
         content_hash=row["content_hash"],
     )
 
@@ -249,6 +476,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 hit_count INTEGER NOT NULL DEFAULT 0,
+                last_hit_at TEXT,
                 content_hash TEXT NOT NULL UNIQUE
             );
 
@@ -278,6 +506,23 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 UNIQUE(source_id, target_id, relation_type)
             );
+
+            CREATE TABLE IF NOT EXISTS memory_entities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+                entity_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                source TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE(memory_id, entity_key, source)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_memory_entities_key
+              ON memory_entities(entity_key, confidence);
+            CREATE INDEX IF NOT EXISTS idx_memory_entities_memory
+              ON memory_entities(memory_id);
 
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,10 +652,49 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
               ON recall_trace_items(run_id, rank);
             CREATE INDEX IF NOT EXISTS idx_recall_trace_items_memory
               ON recall_trace_items(memory_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS current_state_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL DEFAULT 'manual',
+                ttl_hours INTEGER NOT NULL,
+                items_written INTEGER NOT NULL DEFAULT 0,
+                notes_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS current_state_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES current_state_runs(id) ON DELETE CASCADE,
+                state_key TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                confidence REAL NOT NULL DEFAULT 1.0,
+                expires_at TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_current_state_items_category
+              ON current_state_items(category, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_current_state_items_expires
+              ON current_state_items(expires_at);
             """
         )
+        self._ensure_memory_columns()
         self.rebuild_index()
+        self.rebuild_entity_index()
         self.conn.commit()
+
+    def _ensure_memory_columns(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self.conn.execute("PRAGMA table_info(memories)").fetchall()
+        }
+        if "last_hit_at" not in columns:
+            self.conn.execute("ALTER TABLE memories ADD COLUMN last_hit_at TEXT")
 
     def rebuild_index(self) -> None:
         self.conn.execute("DELETE FROM memories_fts")
@@ -429,6 +713,35 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
               FROM events
             """
         )
+
+    def _index_memory_entities(self, record: MemoryRecord) -> None:
+        if record.id is None:
+            return
+        self.conn.execute("DELETE FROM memory_entities WHERE memory_id = ?", (record.id,))
+        self.conn.executemany(
+            """
+            INSERT OR IGNORE INTO memory_entities (
+                memory_id, entity_key, label, kind, source, confidence
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    record.id,
+                    item["entity_key"],
+                    item["label"],
+                    item["kind"],
+                    item["source"],
+                    item["confidence"],
+                )
+                for item in _extract_memory_entities(record)
+            ],
+        )
+
+    def rebuild_entity_index(self) -> None:
+        self.conn.execute("DELETE FROM memory_entities")
+        rows = self.conn.execute("SELECT * FROM memories ORDER BY id").fetchall()
+        for row in rows:
+            self._index_memory_entities(_row_to_memory(row))
 
     def add_memory(
         self,
@@ -538,8 +851,10 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 clean_fact_key or "",
             ),
         )
+        record = self.get_memory(memory_id)
+        self._index_memory_entities(record)
         self.conn.commit()
-        return self.get_memory(memory_id), True
+        return record, True
 
     def get_memory(self, memory_id: int) -> MemoryRecord:
         row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
@@ -597,6 +912,47 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 (memory_id, memory_id),
             ).fetchall()
         return [_row_to_relation(row) for row in rows]
+
+    def list_entities(
+        self,
+        memory_id: int | None = None,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        if memory_id is None:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                  FROM memory_entities
+                 ORDER BY entity_key, memory_id, source
+                 LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                  FROM memory_entities
+                 WHERE memory_id = ?
+                 ORDER BY entity_key, source
+                 LIMIT ?
+                """,
+                (int(memory_id), int(limit)),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "memory_id": row["memory_id"],
+                "entity_key": row["entity_key"],
+                "label": row["label"],
+                "kind": row["kind"],
+                "source": row["source"],
+                "confidence": row["confidence"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def list_recent(self, limit: int = 20) -> list[MemoryRecord]:
         rows = self.conn.execute(
@@ -760,6 +1116,292 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             return [redact_obj(item) for item in selected]
         return selected
 
+    def _insert_current_state_item(
+        self,
+        *,
+        run_id: int,
+        state_key: str,
+        category: str,
+        title: str,
+        content: str,
+        provenance: dict[str, Any],
+        confidence: float,
+        ttl_hours: int,
+    ) -> None:
+        provenance_json = json.dumps(provenance, ensure_ascii=False, sort_keys=True)
+        self.conn.execute(
+            """
+            INSERT INTO current_state_items (
+                run_id, state_key, category, title, content, provenance_json,
+                confidence, expires_at, content_hash
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?,
+                strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?),
+                ?
+            )
+            """,
+            (
+                run_id,
+                state_key,
+                category,
+                title.strip(),
+                content.strip(),
+                provenance_json,
+                max(0.0, min(float(confidence), 1.0)),
+                f"+{ttl_hours} hours",
+                _state_hash(state_key, title, content, provenance_json),
+            ),
+        )
+
+    def refresh_current_state(
+        self,
+        *,
+        ttl_hours: int = 24,
+        fact_limit: int = 20,
+        thread_limit: int = 8,
+        event_limit: int = 6,
+        audit_limit: int = 8,
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        """Rebuild the materialized current-state pack from durable tables."""
+
+        if ttl_hours <= 0:
+            raise ValueError("ttl_hours must be positive")
+        fact_limit = max(0, int(fact_limit))
+        thread_limit = max(0, int(thread_limit))
+        event_limit = max(0, int(event_limit))
+        audit_limit = max(0, int(audit_limit))
+
+        cur = self.conn.execute(
+            """
+            INSERT INTO current_state_runs (source, ttl_hours, notes_json)
+            VALUES (?, ?, ?)
+            """,
+            (
+                source.strip() or "manual",
+                int(ttl_hours),
+                json.dumps(
+                    {
+                        "fact_limit": fact_limit,
+                        "thread_limit": thread_limit,
+                        "event_limit": event_limit,
+                        "audit_limit": audit_limit,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            ),
+        )
+        run_id = int(cur.lastrowid)
+        self.conn.execute("DELETE FROM current_state_items")
+
+        category_counts: dict[str, int] = {}
+
+        def add_item(**kwargs: Any) -> None:
+            self._insert_current_state_item(run_id=run_id, ttl_hours=ttl_hours, **kwargs)
+            category = str(kwargs["category"])
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        if fact_limit:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                  FROM memories
+                 WHERE fact_key IS NOT NULL
+                   AND active_fact = 1
+                   AND status = 'current'
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT ?
+                """,
+                (fact_limit,),
+            ).fetchall()
+            for row in rows:
+                record = _row_to_memory(row)
+                fact_key = record.fact_key or f"memory:{record.id}"
+                add_item(
+                    state_key=f"fact:{fact_key}",
+                    category="current_fact",
+                    title=record.title,
+                    content=record.content,
+                    provenance={
+                        "source_table": "memories",
+                        "memory_ids": [record.id],
+                        "fact_key": record.fact_key,
+                    },
+                    confidence=record.confidence if record.confidence is not None else 1.0,
+                )
+
+        if thread_limit:
+            thread_rows = self.conn.execute(
+                f"""
+                SELECT thread,
+                       count(*) AS memory_count,
+                       max(updated_at) AS latest_at
+                  FROM memories
+                 WHERE {LIVE_MEMORY_SQL}
+                 GROUP BY thread
+                 ORDER BY latest_at DESC, memory_count DESC, thread
+                 LIMIT ?
+                """,
+                (thread_limit,),
+            ).fetchall()
+            for row in thread_rows:
+                thread = str(row["thread"] or "other")
+                latest_rows = self.conn.execute(
+                    f"""
+                    SELECT id, title
+                      FROM memories
+                     WHERE {LIVE_MEMORY_SQL}
+                       AND thread = ?
+                     ORDER BY updated_at DESC, id DESC
+                     LIMIT 5
+                    """,
+                    (thread,),
+                ).fetchall()
+                memory_ids = [int(item["id"]) for item in latest_rows]
+                latest_titles = [str(item["title"]) for item in latest_rows[:3]]
+                add_item(
+                    state_key=f"thread:{thread}",
+                    category="active_thread",
+                    title=f"Active thread: {thread}",
+                    content=(
+                        f"{int(row['memory_count'])} current memories. "
+                        f"Latest: {'; '.join(latest_titles)}"
+                    ),
+                    provenance={
+                        "source_table": "memories",
+                        "memory_ids": memory_ids,
+                        "thread": thread,
+                    },
+                    confidence=0.75,
+                )
+
+        if audit_limit:
+            rows = self.conn.execute(
+                """
+                SELECT z.*,
+                       left_m.title AS left_title,
+                       right_m.title AS right_title
+                  FROM z_conflict_audits z
+                  JOIN memories left_m ON left_m.id = z.left_memory_id
+                  JOIN memories right_m ON right_m.id = z.right_memory_id
+                 WHERE z.status = 'pending'
+                   AND z.verdict = 'pending'
+                 ORDER BY z.created_at DESC, z.id DESC
+                 LIMIT ?
+                """,
+                (audit_limit,),
+            ).fetchall()
+            for row in rows:
+                audit_id = int(row["id"])
+                add_item(
+                    state_key=f"z_audit:{audit_id}",
+                    category="pending_z_audit",
+                    title=f"Pending Z audit: {row['left_title']} <-> {row['right_title']}",
+                    content=row["reason"] or "Pending conflict review.",
+                    provenance={
+                        "source_table": "z_conflict_audits",
+                        "audit_ids": [audit_id],
+                        "memory_ids": [int(row["left_memory_id"]), int(row["right_memory_id"])],
+                        "fact_key": row["fact_key"],
+                    },
+                    confidence=row["confidence"] if row["confidence"] is not None else 0.6,
+                )
+
+        if event_limit:
+            rows = self.conn.execute(
+                """
+                SELECT *
+                  FROM events
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?
+                """,
+                (event_limit,),
+            ).fetchall()
+            for row in rows:
+                event = _row_to_event(row)
+                add_item(
+                    state_key=f"recent_event:{event.id}",
+                    category="recent_event",
+                    title=f"Recent {event.role} event in {event.channel}",
+                    content=event.content[:400],
+                    provenance={
+                        "source_table": "events",
+                        "event_ids": [event.id],
+                        "channel": event.channel,
+                        "role": event.role,
+                    },
+                    confidence=0.65,
+                )
+
+        total = sum(category_counts.values())
+        self.conn.execute(
+            "UPDATE current_state_runs SET items_written = ? WHERE id = ?",
+            (total, run_id),
+        )
+        self.conn.commit()
+        return {
+            "run_id": run_id,
+            "items_written": total,
+            "category_counts": category_counts,
+            "ttl_hours": int(ttl_hours),
+        }
+
+    def list_current_state(
+        self,
+        limit: int = 20,
+        *,
+        category: str | None = None,
+        include_expired: bool = False,
+        redact: bool = False,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        if not include_expired:
+            clauses.append("expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self.conn.execute(
+            f"""
+            SELECT *
+              FROM current_state_items
+              {where}
+             ORDER BY
+               CASE category
+                 WHEN 'current_fact' THEN 0
+                 WHEN 'pending_z_audit' THEN 1
+                 WHEN 'active_thread' THEN 2
+                 WHEN 'recent_event' THEN 3
+                 ELSE 9
+               END,
+               updated_at DESC,
+               id DESC
+             LIMIT ?
+            """,
+            (*params, int(limit)),
+        ).fetchall()
+        items = [
+            {
+                "id": row["id"],
+                "run_id": row["run_id"],
+                "state_key": row["state_key"],
+                "category": row["category"],
+                "title": row["title"],
+                "content": row["content"],
+                "provenance": json.loads(row["provenance_json"] or "{}"),
+                "confidence": row["confidence"],
+                "expires_at": row["expires_at"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+        if redact:
+            return [redact_obj(item) for item in items]
+        return items
+
     def surface(
         self,
         query: str,
@@ -767,15 +1409,18 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         *,
         event_limit: int | None = None,
         memory_limit: int | None = None,
+        state_limit: int = 4,
+        include_state: bool = True,
         redact: bool = True,
     ) -> dict[str, Any]:
         memory_limit = memory_limit or max(1, limit // 2)
         event_limit = event_limit or max(1, limit - memory_limit)
-        return {
-            "query": query,
-            "memories": self.recall(query, limit=memory_limit, redact=redact),
-            "events": self.search_events(query, limit=event_limit, redact=redact),
-        }
+        result: dict[str, Any] = {"query": query}
+        if include_state:
+            result["state"] = self.list_current_state(limit=state_limit, redact=redact)
+        result["memories"] = self.recall(query, limit=memory_limit, redact=redact)
+        result["events"] = self.search_events(query, limit=event_limit, redact=redact)
+        return result
 
     def stats(self) -> dict[str, Any]:
         """Return read-only database health and coverage statistics."""
@@ -851,10 +1496,21 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         return {
             "memory_count": memory_count,
             "relation_count": count("relations"),
+            "entity_count": count("memory_entities"),
             "event_count": event_count,
             "vector_count": count("vectors"),
             "event_chunk_count": count("event_chunks"),
             "consolidation_run_count": count("consolidation_runs"),
+            "current_state_count": count("current_state_items"),
+            "current_state_live_count": int(
+                self.conn.execute(
+                    """
+                    SELECT count(*)
+                      FROM current_state_items
+                     WHERE expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    """
+                ).fetchone()[0]
+            ),
             "z_conflict_audit_count": count("z_conflict_audits"),
             "z_conflict_pending_count": int(
                 self.conn.execute(
@@ -1027,7 +1683,11 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         return selected
 
     def _recall_candidates(self, query: str, limit: int) -> list[tuple[MemoryRecord, float, list[str]]]:
-        terms = [term.strip() for term in query.split() if term.strip()]
+        terms = [
+            term.strip()
+            for term in query.split()
+            if term.strip() and not _is_query_control_term(term)
+        ]
         if not terms:
             rows = self.conn.execute(
                 f"SELECT * FROM memories WHERE {LIVE_MEMORY_SQL} ORDER BY created_at DESC LIMIT ?",
@@ -1084,6 +1744,48 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 if int(record.id) not in candidates:
                     candidates[int(record.id)] = (record, 0.5, ["like"])
         return list(candidates.values())
+
+    def _entity_matches(self, query: str, limit: int) -> dict[int, tuple[float, list[str]]]:
+        query_entities = _extract_query_entities(query)
+        if not query_entities:
+            return {}
+        keys = sorted({item["entity_key"] for item in query_entities})
+        placeholders = ", ".join("?" for _ in keys)
+        rows = self.conn.execute(
+            f"""
+            SELECT me.memory_id,
+                   me.label,
+                   me.kind,
+                   me.source,
+                   me.confidence
+              FROM memory_entities me
+              JOIN memories m ON m.id = me.memory_id
+             WHERE me.entity_key IN ({placeholders})
+               AND {LIVE_MEMORY_SQL.replace('status', 'm.status')
+                              .replace('fact_key', 'm.fact_key')
+                              .replace('active_fact', 'm.active_fact')}
+             ORDER BY me.confidence DESC, me.source, me.memory_id
+             LIMIT ?
+            """,
+            (*keys, max(1, int(limit)) * 10),
+        ).fetchall()
+        scores: dict[int, float] = {}
+        labels: dict[int, set[str]] = {}
+        for row in rows:
+            memory_id = int(row["memory_id"])
+            source = str(row["source"])
+            weight = ENTITY_SOURCE_WEIGHTS.get(source, 0.05)
+            scores[memory_id] = scores.get(memory_id, 0.0) + weight * float(row["confidence"] or 1.0)
+            labels.setdefault(memory_id, set()).add(
+                f"{row['kind']}:{row['label']}"
+            )
+        return {
+            memory_id: (
+                round(min(ENTITY_MAX_BOOST, score), 3),
+                sorted(labels.get(memory_id, set()))[:8],
+            )
+            for memory_id, score in scores.items()
+        }
 
     def _relation_expansion(
         self, base_ids: list[int]
@@ -1261,9 +1963,35 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         limit: int = 5,
         *,
         expand_relations: bool = True,
+        entity_boost: bool = True,
+        temporal_boost: bool = True,
         trace: bool = True,
     ) -> list[RecallHit]:
         candidates = self._recall_candidates(query, limit)
+        entity_scores = self._entity_matches(query, limit * 5) if entity_boost else {}
+        temporal_intent = _query_temporal_intent(query) if temporal_boost else ""
+        if entity_scores:
+            candidate_map = {
+                int(record.id): (record, match_score, list(reasons))
+                for record, match_score, reasons in candidates
+                if record.id is not None
+            }
+            for memory_id, (_, entity_labels) in entity_scores.items():
+                entity_reasons = [f"entity:{label}" for label in entity_labels]
+                if memory_id in candidate_map:
+                    record, match_score, reasons = candidate_map[memory_id]
+                    candidate_map[memory_id] = (
+                        record,
+                        match_score,
+                        sorted(set(reasons + entity_reasons)),
+                    )
+                    continue
+                try:
+                    record = self.get_memory(memory_id)
+                except KeyError:
+                    continue
+                candidate_map[memory_id] = (record, 0.0, entity_reasons)
+            candidates = list(candidate_map.values())
         base_ids = [int(record.id) for record, _, _ in candidates if record.id is not None]
         relation_scores = self._relation_expansion(base_ids) if expand_relations else {}
 
@@ -1278,10 +2006,14 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         hits: list[RecallHit] = []
         for record, match_score, reasons in candidates:
             relation_score, related_from, _ = relation_scores.get(int(record.id), (0.0, [], []))
+            entity_score, entity_labels = entity_scores.get(int(record.id), (0.0, []))
+            temporal_score = _temporal_boost(record, temporal_intent)
             breakdown = _recall_score_breakdown(
                 record,
                 match_score=match_score,
                 relation_score=relation_score,
+                entity_score=entity_score,
+                temporal_score=temporal_score,
                 reasons=reasons,
             )
             hits.append(
@@ -1296,6 +2028,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                     trace={
                         "channels": reasons,
                         "expanded_from": related_from,
+                        "entity_matches": entity_labels,
+                        "temporal_intent": temporal_intent,
                         "live_filter": "current_and_active_fact",
                     },
                 )
@@ -1306,7 +2040,12 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         if selected:
             ids = [hit.record.id for hit in selected if hit.record.id is not None]
             self.conn.executemany(
-                "UPDATE memories SET hit_count = hit_count + 1 WHERE id = ?",
+                """
+                UPDATE memories
+                   SET hit_count = hit_count + 1,
+                       last_hit_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?
+                """,
                 [(memory_id,) for memory_id in ids],
             )
         if trace:
@@ -1339,6 +2078,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         *,
         redact: bool = False,
         expand_relations: bool = True,
+        entity_boost: bool = True,
+        temporal_boost: bool = True,
         trace: bool = True,
     ) -> list[dict[str, Any]]:
         selected = [
@@ -1347,6 +2088,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 query,
                 limit=limit,
                 expand_relations=expand_relations,
+                entity_boost=entity_boost,
+                temporal_boost=temporal_boost,
                 trace=trace,
             )
         ]

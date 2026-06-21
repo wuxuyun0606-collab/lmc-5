@@ -220,3 +220,58 @@ Implemented on the local Mac LMC-5 path:
 
 This closes the explain loop for "why did this memory enter context?" The next
 loop is state/currentness: a rebuildable startup pack with provenance and TTL.
+
+Implemented next on the local Mac LMC-5 path:
+
+- `current_state_runs` and `current_state_items` provide a materialized,
+  rebuildable state pack rather than a new source of truth.
+- `refresh_current_state()` rebuilds state from current facts, active threads,
+  pending Z audits, and recent raw events.
+- Every state item carries `provenance`, `confidence`, and `expires_at`.
+- `surface()` can include state first, while `state-refresh` / `state` expose
+  the loop through the CLI.
+
+This closes the "what should be treated as true now?" loop without weakening
+Z-axis review. Old facts still live in durable memory; state is just a
+time-bounded launch cache with receipts.
+
+Implemented next on the local Mac LMC-5 path:
+
+- `memory_entities` indexes deterministic entities from `fact_key`, tags,
+  thread, titles, code-like tokens, quoted phrases, and conservative short CJK
+  title terms.
+- Recall now adds an `entity_boost` score component and records matched entity
+  labels in each hit trace.
+- Entity matches can rescue low-text-signal memories, but they stay visible in
+  `reasons` and can be disabled with `--no-entity-boost`.
+- `entities` CLI exposes the local entity index for debugging and patrol.
+
+This brings over the useful part of mem0 entity boost without turning entity
+linking into automatic truth. Entity is a relevance signal; Z still decides
+which fact is current.
+
+Implemented next on the local Mac LMC-5 path:
+
+- Recall now detects lightweight recent/current intent terms such as `latest`,
+  `recent`, `now`, `最近`, `刚才`, `今天`, and `当前`.
+- Those control terms are stripped from first-stage text matching so they do not
+  accidentally block recall.
+- Matching live memories receive a bounded `temporal_boost` based on recency,
+  and each hit trace records the detected temporal intent.
+- `--no-temporal-boost` disables the ranking signal for debugging.
+
+This brings over temporal ranking as a soft bias, not a filter. A stale but
+exact protected/current memory can still surface; recentness only breaks ties
+and improves "what is current?" queries.
+
+Implemented next on the local Mac LMC-5 path:
+
+- Core memories now track `last_hit_at` in addition to `hit_count`.
+- `init()` performs a safe compatibility migration for older SQLite databases
+  that do not yet have the column.
+- Recall reinforcement updates both counters only for final injected hits.
+
+This gives the M layer real usage evidence for future activation/decay policy.
+The heavier decay policy is intentionally not guessed here; first collect the
+receipts, then tune the metabolism. Fancy decay without evidence is just
+spreadsheet cosplay.

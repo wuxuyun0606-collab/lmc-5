@@ -75,6 +75,13 @@ def cmd_relations(args: argparse.Namespace) -> None:
     _print_json(redact_obj(rows))
 
 
+def cmd_entities(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        rows = store.list_entities(memory_id=args.memory_id, limit=args.limit)
+    _print_json(redact_obj(rows))
+
+
 def _parse_json_arg(value: str, *, default: Any) -> Any:
     if not value:
         return default
@@ -123,9 +130,37 @@ def cmd_surface(args: argparse.Namespace) -> None:
             limit=args.limit,
             event_limit=args.event_limit,
             memory_limit=args.memory_limit,
+            state_limit=args.state_limit,
+            include_state=not args.no_state,
             redact=True,
         )
     _print_json(result)
+
+
+def cmd_state_refresh(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        result = store.refresh_current_state(
+            ttl_hours=args.ttl_hours,
+            fact_limit=args.fact_limit,
+            thread_limit=args.thread_limit,
+            event_limit=args.event_limit,
+            audit_limit=args.audit_limit,
+            source=args.source,
+        )
+    _print_json(result)
+
+
+def cmd_state(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        rows = store.list_current_state(
+            limit=args.limit,
+            category=args.category,
+            include_expired=args.include_expired,
+            redact=True,
+        )
+    _print_json(rows)
 
 
 def cmd_stats(args: argparse.Namespace) -> None:
@@ -210,6 +245,8 @@ def cmd_recall(args: argparse.Namespace) -> None:
             limit=args.limit,
             redact=True,
             expand_relations=not args.no_relations,
+            entity_boost=not args.no_entity_boost,
+            temporal_boost=not args.no_temporal_boost,
             trace=not args.no_trace,
         )
     _print_json(rows)
@@ -368,6 +405,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_relations.add_argument("--memory-id", type=int)
     p_relations.set_defaults(func=cmd_relations)
 
+    p_entities = sub.add_parser("entities", parents=[parent], help="list indexed memory entities")
+    p_entities.add_argument("--memory-id", type=int)
+    p_entities.add_argument("--limit", type=int, default=100)
+    p_entities.set_defaults(func=cmd_entities)
+
     p_log_event = sub.add_parser("log-event", parents=[parent], help="append a raw event")
     p_log_event.add_argument("--role", required=True, choices=["system", "user", "assistant", "tool", "environment", "note"])
     p_log_event.add_argument("--content", required=True)
@@ -392,7 +434,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_surface.add_argument("--limit", type=int, default=8)
     p_surface.add_argument("--event-limit", type=int)
     p_surface.add_argument("--memory-limit", type=int)
+    p_surface.add_argument("--state-limit", type=int, default=4)
+    p_surface.add_argument(
+        "--no-state",
+        action="store_true",
+        help="omit the current-state pack from surface output",
+    )
     p_surface.set_defaults(func=cmd_surface)
+
+    p_state_refresh = sub.add_parser(
+        "state-refresh",
+        parents=[parent],
+        help="rebuild the materialized current-state pack",
+    )
+    p_state_refresh.add_argument("--ttl-hours", type=int, default=24)
+    p_state_refresh.add_argument("--fact-limit", type=int, default=20)
+    p_state_refresh.add_argument("--thread-limit", type=int, default=8)
+    p_state_refresh.add_argument("--event-limit", type=int, default=6)
+    p_state_refresh.add_argument("--audit-limit", type=int, default=8)
+    p_state_refresh.add_argument("--source", default="manual")
+    p_state_refresh.set_defaults(func=cmd_state_refresh)
+
+    p_state = sub.add_parser(
+        "state",
+        parents=[parent],
+        help="list materialized current-state items",
+    )
+    p_state.add_argument("--limit", type=int, default=20)
+    p_state.add_argument("--category")
+    p_state.add_argument("--include-expired", action="store_true")
+    p_state.set_defaults(func=cmd_state)
 
     p_stats = sub.add_parser(
         "stats",
@@ -436,6 +507,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-relations",
         action="store_true",
         help="disable two-hop typed relation expansion",
+    )
+    p_recall.add_argument(
+        "--no-entity-boost",
+        action="store_true",
+        help="disable entity-index boost and entity-only candidates",
+    )
+    p_recall.add_argument(
+        "--no-temporal-boost",
+        action="store_true",
+        help="disable recent/current temporal ranking boost",
     )
     p_recall.add_argument(
         "--no-trace",
