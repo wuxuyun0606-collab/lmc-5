@@ -40,6 +40,23 @@ as "I keep running into this lately." Only later do they become a real domain.
 When "other" memories graduate into a real thread, you rename the thread —
 you don't copy and delete.
 
+### Other Incubation Cadence
+
+Do not split "other" after a single intense conversation. Intensity is not a
+domain boundary.
+
+The default M patrol uses a three-stage cadence:
+
+| Stage | Threshold | Action |
+|---|---|---|
+| `observe_cluster` | 3 related `other` memories | keep watching; no split yet |
+| `candidate_line` | 5 related memories, or 3+ memories with repeated hits | review as a possible new thread |
+| `formal_line_candidate` | 8 related memories, spanning at least 14 days, with at least 2 recall hits | consider a real X-thread split |
+
+The patrol is read-only. It reports candidates; the user or higher-level
+runner decides whether to rename or split the thread. This prevents a noisy
+week from turning into a permanent taxonomy accident.
+
 ## Temporal Layers
 
 Raw events have timestamps. But a persona also needs narrative structure

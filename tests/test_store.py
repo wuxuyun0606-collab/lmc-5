@@ -141,6 +141,60 @@ def test_recall_reinforcement_updates_hit_count_and_last_hit_at(tmp_path):
     assert refreshed.to_public_dict()["last_hit_at"] == refreshed.last_hit_at
 
 
+def test_recall_filters_quarantined_noise_memories(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        noisy, _ = store.add_memory(
+            title="Endpoint debug trace",
+            content="Temporary endpoint debug output.",
+            source="debug",
+            category="log",
+        )
+        useful, _ = store.add_memory(
+            title="Endpoint runbook",
+            content="Use the endpoint runbook for rollback decisions.",
+            category="knowledge",
+        )
+
+        rows = store.recall("endpoint", limit=10, trace=False)
+
+    ids = {row["id"] for row in rows}
+    assert useful.id in ids
+    assert noisy.id not in ids
+    useful_row = next(row for row in rows if row["id"] == useful.id)
+    assert useful_row["score_breakdown"]["m_gate_bucket"] == "retain"
+
+
+def test_surface_uses_stricter_metabolic_gate(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        raw, _ = store.add_memory(
+            title="Endpoint raw conversation",
+            content="Raw endpoint conversation excerpt.",
+            source="conversation",
+            category="conversation",
+        )
+        useful, _ = store.add_memory(
+            title="Endpoint policy",
+            content="Endpoint policy should surface for rollback planning.",
+            category="knowledge",
+        )
+
+        result = store.surface(
+            "endpoint",
+            limit=4,
+            memory_limit=4,
+            event_limit=1,
+            include_state=False,
+        )
+
+    ids = {row["id"] for row in result["memories"]}
+    assert useful.id in ids
+    assert raw.id not in ids
+
+
 def test_recall_expands_one_hop_safe_relations(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:

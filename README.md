@@ -85,11 +85,11 @@ LMC-5 has automatic passes, but **only after you wire and schedule them**.
 
 | Axis | Automatic After Wiring? | What Still Needs Review |
 |---|---|---|
-| **X** | Yes: `consolidate` and `timeline_sweep(thread)` can run nightly. | Thread naming, split/merge decisions, timeline interpretation. |
+| **X** | Yes: `consolidate`, `timeline_sweep(thread)`, and read-only `other` incubation checks can run nightly. | Thread naming, split/merge decisions, timeline interpretation. |
 | **Y** | Yes: the hippocampus pass can write safe relation edges. | `contradicts`, `cause_effect`, `supports`, and broad graph cleanup. |
 | **Z** | Partly: `z_audit` can queue contradiction/supersession candidates. | Applying supersession to live facts. |
 | **E** | Yes: heartbeat detection and E-axis backfill can run in batch/shadow mode. | Letting noisy scores affect ranking before validation. |
-| **M** | Partly: patrol is read-only and schedulable; decay/dedup jobs are separate. | Archive/delete/merge/demote decisions. |
+| **M** | Partly: patrol is read-only and schedulable; recall/surface gates are computed at retrieval time; decay/dedup jobs are separate. | Archive/delete/merge/demote decisions and formal X-thread splits. |
 
 For the full checklist, read
 [`docs/AUTOMATION_BOUNDARIES.md`](docs/AUTOMATION_BOUNDARIES.md).

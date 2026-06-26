@@ -226,6 +226,7 @@ class MetabolismSuggestion:
     thread: str | None = None
     category: str | None = None
     tag: str | None = None
+    stage: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -237,6 +238,7 @@ class MetabolismSuggestion:
             "thread": self.thread,
             "category": self.category,
             "tag": self.tag,
+            "stage": self.stage,
         }
 
 
@@ -246,7 +248,7 @@ class RecallHit:
     score: float
     match_score: float
     relation_score: float = 0.0
-    score_breakdown: dict[str, float] = field(default_factory=dict)
+    score_breakdown: dict[str, Any] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
     related_from: list[int] = field(default_factory=list)
     trace: dict[str, Any] = field(default_factory=dict)

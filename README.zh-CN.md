@@ -74,11 +74,11 @@ LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron
 
 | 轴 | 接好后能自动吗 | 仍需复核/人工决策 |
 |---|---|---|
-| **X** | 能：`consolidate` 和 `timeline_sweep(thread)` 可以夜间跑。 | 线程命名、拆线/合线、叙事解释。 |
+| **X** | 能：`consolidate`、`timeline_sweep(thread)` 和只读 `other` 孵化巡检可以夜间跑。 | 线程命名、拆线/合线、叙事解释。 |
 | **Y** | 能：hippocampus pass 可以自动写安全关系边。 | `contradicts`、`cause_effect`、`supports` 和大规模图清理。 |
 | **Z** | 半自动：`z_audit` 可以把矛盾/覆盖候选放进审计队列。 | 真正 supersede 当前事实。 |
 | **E** | 能：heartbeat detection 和 E 轴 backfill 可以批处理/影子期运行。 | 噪声分数在验证前影响排序。 |
-| **M** | 半自动：patrol 是只读且可调度；衰减/去重任务要单独接。 | 归档、删除、合并、降权。 |
+| **M** | 半自动：patrol 只读且可调度；召回/浮现门禁在检索时计算；衰减/去重任务要单独接。 | 归档、删除、合并、降权，以及正式 X 线拆分。 |
 
 完整验收清单见
 [`docs/AUTOMATION_BOUNDARIES.md`](docs/AUTOMATION_BOUNDARIES.md)。

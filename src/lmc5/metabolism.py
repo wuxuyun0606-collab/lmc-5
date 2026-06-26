@@ -5,11 +5,85 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from typing import Literal
 
 from .models import MetabolismSuggestion, SYMMETRIC_RELATION_TYPES
 
+Severity = Literal["info", "warning", "critical"]
 
-def patrol(conn: sqlite3.Connection, *, split_threshold: int = 5) -> list[MetabolismSuggestion]:
+
+def _parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _span_days(rows: list[sqlite3.Row]) -> float:
+    dates = [parsed for row in rows if (parsed := _parse_time(row["created_at"]))]
+    if len(dates) < 2:
+        return 0.0
+    return max((max(dates) - min(dates)).total_seconds() / 86400, 0.0)
+
+
+def _other_stage(
+    rows: list[sqlite3.Row],
+    *,
+    observe_threshold: int,
+    candidate_threshold: int,
+    formal_threshold: int,
+    formal_min_span_days: int,
+    formal_min_hits: int,
+) -> tuple[str | None, Severity, str]:
+    count = len(rows)
+    hit_total = sum(int(row["hit_count"] or 0) for row in rows)
+    span_days = _span_days(rows)
+
+    if (
+        count >= formal_threshold
+        and span_days >= formal_min_span_days
+        and hit_total >= formal_min_hits
+    ):
+        return (
+            "formal_line_candidate",
+            "warning",
+            (
+                f"{count} memories over {span_days:.0f}d with {hit_total} hits "
+                "meet the formal split threshold"
+            ),
+        )
+    if count >= candidate_threshold or (count >= observe_threshold and hit_total >= 3):
+        return (
+            "candidate_line",
+            "info",
+            f"{count} memories with {hit_total} hits should be reviewed as a candidate thread",
+        )
+    if count >= observe_threshold:
+        return (
+            "observe_cluster",
+            "info",
+            f"{count} memories form an observation cluster; keep watching before splitting",
+        )
+    return None, "info", ""
+
+
+def patrol(
+    conn: sqlite3.Connection,
+    *,
+    split_threshold: int = 5,
+    observe_threshold: int = 3,
+    formal_threshold: int = 8,
+    formal_min_span_days: int = 14,
+    formal_min_hits: int = 2,
+) -> list[MetabolismSuggestion]:
     """Return read-only lifecycle suggestions."""
     suggestions: list[MetabolismSuggestion] = []
 
@@ -167,40 +241,67 @@ def patrol(conn: sqlite3.Connection, *, split_threshold: int = 5) -> list[Metabo
         )
 
     other_rows = conn.execute(
-        "SELECT id, category, tags_json FROM memories WHERE thread = 'other'"
+        """
+        SELECT id, category, tags_json, hit_count, created_at
+          FROM memories
+         WHERE thread = 'other'
+           AND status = 'current'
+        """
     ).fetchall()
-    category_ids: dict[str, list[int]] = defaultdict(list)
-    tag_ids: dict[str, list[int]] = defaultdict(list)
+    category_rows: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    tag_rows: dict[str, list[sqlite3.Row]] = defaultdict(list)
     tag_counter: Counter[str] = Counter()
     for row in other_rows:
-        category_ids[row["category"]].append(int(row["id"]))
+        category_rows[row["category"]].append(row)
         for tag in json.loads(row["tags_json"] or "[]"):
             tag_counter[tag] += 1
-            tag_ids[tag].append(int(row["id"]))
+            tag_rows[tag].append(row)
 
-    for category, ids in category_ids.items():
-        if category and len(ids) >= split_threshold:
+    candidate_threshold = split_threshold
+    for category, rows in category_rows.items():
+        stage, severity, reason = _other_stage(
+            rows,
+            observe_threshold=observe_threshold,
+            candidate_threshold=candidate_threshold,
+            formal_threshold=formal_threshold,
+            formal_min_span_days=formal_min_span_days,
+            formal_min_hits=formal_min_hits,
+        )
+        if category and stage:
+            ids = [int(row["id"]) for row in rows]
             suggestions.append(
                 MetabolismSuggestion(
                     action="split_thread",
-                    severity="info",
-                    reason=f"`other` contains {len(ids)} memories in category `{category}`",
+                    severity=severity,
+                    reason=f"`other` category `{category}`: {reason}",
                     memory_ids=ids[:20],
                     thread="other",
                     category=category,
+                    stage=stage,
                 )
             )
 
-    for tag, count in tag_counter.items():
-        if count >= split_threshold:
+    for tag in tag_counter:
+        rows = tag_rows[tag]
+        stage, severity, reason = _other_stage(
+            rows,
+            observe_threshold=observe_threshold,
+            candidate_threshold=candidate_threshold,
+            formal_threshold=formal_threshold,
+            formal_min_span_days=formal_min_span_days,
+            formal_min_hits=formal_min_hits,
+        )
+        if stage:
+            ids = [int(row["id"]) for row in rows]
             suggestions.append(
                 MetabolismSuggestion(
                     action="split_thread",
-                    severity="info",
-                    reason=f"`other` contains {count} memories tagged `{tag}`",
-                    memory_ids=tag_ids[tag][:20],
+                    severity=severity,
+                    reason=f"`other` tag `{tag}`: {reason}",
+                    memory_ids=ids[:20],
                     thread="other",
                     tag=tag,
+                    stage=stage,
                 )
             )
 

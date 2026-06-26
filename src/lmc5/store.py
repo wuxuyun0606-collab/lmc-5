@@ -30,7 +30,7 @@ from .models import (
     validate_choice,
 )
 from .redact import redact_obj
-from .scoring import priority_score
+from .scoring import GateMode, metabolic_gate, priority_score
 from .vector import cosine_similarity, vector_from_json, vector_hash, vector_to_json
 
 
@@ -342,14 +342,20 @@ def _recall_score_breakdown(
     entity_score: float,
     temporal_score: float,
     reasons: list[str],
-) -> dict[str, float]:
+    gate: dict[str, Any],
+) -> dict[str, Any]:
     priority = priority_score(record)
-    final = priority + match_score + relation_score + entity_score + temporal_score
-    breakdown: dict[str, float] = {
+    base = priority + match_score + relation_score + entity_score + temporal_score
+    m_factor = float(gate.get("factor", 1.0) or 0.0)
+    final = base * m_factor
+    breakdown: dict[str, Any] = {
         "priority": round(priority, 3),
         "relation": round(relation_score, 3),
         "entity_boost": round(entity_score, 3),
         "temporal_boost": round(temporal_score, 3),
+        "m_gate_factor": round(m_factor, 3),
+        "m_gate_bucket": str(gate.get("bucket", "")),
+        "m_gate_reason": str(gate.get("reason", "")),
         "final": round(final, 3),
     }
     if "fts" in reasons:
@@ -1418,7 +1424,9 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         result: dict[str, Any] = {"query": query}
         if include_state:
             result["state"] = self.list_current_state(limit=state_limit, redact=redact)
-        result["memories"] = self.recall(query, limit=memory_limit, redact=redact)
+        memory_hits = self.recall_hits(query, limit=memory_limit, gate_mode="surface")
+        memories = [hit.to_dict() for hit in memory_hits]
+        result["memories"] = [redact_obj(item) for item in memories] if redact else memories
         result["events"] = self.search_events(query, limit=event_limit, redact=redact)
         return result
 
@@ -1966,6 +1974,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         entity_boost: bool = True,
         temporal_boost: bool = True,
         trace: bool = True,
+        gate_mode: GateMode = "recall",
     ) -> list[RecallHit]:
         candidates = self._recall_candidates(query, limit)
         entity_scores = self._entity_matches(query, limit * 5) if entity_boost else {}
@@ -2005,6 +2014,9 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
 
         hits: list[RecallHit] = []
         for record, match_score, reasons in candidates:
+            gate = metabolic_gate(record, mode=gate_mode)
+            if not gate["allowed"]:
+                continue
             relation_score, related_from, _ = relation_scores.get(int(record.id), (0.0, [], []))
             entity_score, entity_labels = entity_scores.get(int(record.id), (0.0, []))
             temporal_score = _temporal_boost(record, temporal_intent)
@@ -2015,6 +2027,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 entity_score=entity_score,
                 temporal_score=temporal_score,
                 reasons=reasons,
+                gate=gate,
             )
             hits.append(
                 RecallHit(
@@ -2030,6 +2043,12 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                         "expanded_from": related_from,
                         "entity_matches": entity_labels,
                         "temporal_intent": temporal_intent,
+                        "m_gate": {
+                            "mode": gate_mode,
+                            "bucket": gate["bucket"],
+                            "reason": gate["reason"],
+                            "factor": gate["factor"],
+                        },
                         "live_filter": "current_and_active_fact",
                     },
                 )

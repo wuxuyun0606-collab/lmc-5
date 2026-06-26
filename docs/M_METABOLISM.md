@@ -81,6 +81,37 @@ This is archival, not deletion. A persona should never lose a memory
 permanently — but it should stop being distracted by three-month-old
 tool debugging logs.
 
+## Recall Gate vs. Surface Gate
+
+M does not only decide how long a memory lives. It also decides whether a
+memory is allowed to enter an output channel.
+
+LMC-5 uses two gates:
+
+- **`recall` gate:** used when the user or agent explicitly searches memory.
+  It is lenient. `retain` memories are fully eligible; `cold` memories can
+  return with a lower score; `quarantine` memories are excluded.
+- **`surface` gate:** used when the system proactively surfaces memory into
+  the current context. It is stricter. `cold` and `quarantine` memories do
+  not interrupt the active window.
+
+The default buckets are:
+
+| Bucket | Meaning | Recall | Surface |
+|---|---|---|---|
+| `retain` | Useful, reliable, or protected memory | yes | yes |
+| `cold` | Preserved but low-activity or low-priority memory | down-ranked | no |
+| `quarantine` | Debug logs, scratch notes, transient noise, unsafe status | no | no |
+
+This distinction matters because "can be found if asked" and "should
+interrupt the current context" are different questions. A one-off debug trace
+may be worth preserving for audit, but it should not keep jumping into recall
+or spontaneous surfacing.
+
+The minimal implementation exposes this through `lmc5.scoring.metabolic_gate`.
+`MemoryStore.recall()` uses the recall gate; `MemoryStore.surface()` uses the
+surface gate for curated memories.
+
 ## Deduplication
 
 Before a new memory is written, check if a near-identical one already
@@ -116,6 +147,8 @@ patrol reports candidates; the AI or user decides whether to condense.
 - **Review backlog:** How many `pending` audits, `review` memories,
   unresolved conflicts
 - **Thread splits:** A thread has grown too large and should be split
+- **Other-thread incubation:** `other` is checked in three stages —
+  observation cluster, candidate line, formal split candidate
 - **Decay candidates:** Memories below threshold, ready for cold storage
 - **Stale/non-live relations:** Edges touching `superseded`, `archived`,
   `review`, or inactive fact memories

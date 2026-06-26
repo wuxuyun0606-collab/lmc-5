@@ -12,7 +12,7 @@ from .models import (
     VectorRecord,
 )
 from .redact import redact_obj, redact_text
-from .scoring import priority_score
+from .scoring import metabolic_gate, priority_score
 from .store import MemoryStore
 from .vector import cosine_similarity, toy_embed
 
@@ -36,6 +36,7 @@ __all__ = [
     "RecallHit",
     "RelationRecord",
     "priority_score",
+    "metabolic_gate",
     "redact_obj",
     "redact_text",
 ]

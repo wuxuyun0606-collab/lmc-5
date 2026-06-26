@@ -1,4 +1,5 @@
 from lmc5.metabolism import patrol
+from lmc5.scoring import metabolic_gate
 from lmc5.store import MemoryStore
 
 
@@ -17,7 +18,77 @@ def test_patrol_reports_other_thread_split_candidates(tmp_path):
 
         suggestions = patrol(store.conn)
 
-    assert any(item.action == "split_thread" and item.category == "research" for item in suggestions)
+    assert any(
+        item.action == "split_thread"
+        and item.category == "research"
+        and item.stage == "candidate_line"
+        for item in suggestions
+    )
+
+
+def test_patrol_reports_other_thread_observation_clusters(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        for index in range(3):
+            store.add_memory(
+                title=f"Sketch note {index}",
+                content=f"Observation {index}",
+                thread="other",
+                category="sketches",
+            )
+
+        suggestions = patrol(store.conn)
+
+    assert any(
+        item.category == "sketches" and item.stage == "observe_cluster"
+        for item in suggestions
+    )
+
+
+def test_patrol_reports_formal_other_thread_candidates(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        ids = []
+        for index in range(8):
+            record, _ = store.add_memory(
+                title=f"Long arc note {index}",
+                content=f"Observation {index}",
+                thread="other",
+                category="long_arc",
+            )
+            ids.append(record.id)
+        store.conn.execute(
+            "UPDATE memories SET created_at = '2026-01-01T00:00:00Z', hit_count = 1 WHERE id = ?",
+            (ids[0],),
+        )
+        store.conn.execute(
+            "UPDATE memories SET created_at = '2026-01-20T00:00:00Z', hit_count = 1 WHERE id = ?",
+            (ids[-1],),
+        )
+        store.conn.commit()
+
+        suggestions = patrol(store.conn)
+
+    assert any(
+        item.category == "long_arc"
+        and item.stage == "formal_line_candidate"
+        and item.severity == "warning"
+        for item in suggestions
+    )
+
+
+def test_metabolic_gate_blocks_noise_from_recall_and_surface():
+    noisy = {
+        "title": "Temporary debug log",
+        "content": "One-off trace output.",
+        "source": "debug",
+        "category": "log",
+        "status": "current",
+    }
+    assert metabolic_gate(noisy, mode="recall")["allowed"] is False
+    assert metabolic_gate(noisy, mode="surface")["allowed"] is False
 
 
 def test_patrol_reports_high_tension_low_confidence(tmp_path):
