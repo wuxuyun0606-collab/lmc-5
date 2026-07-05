@@ -112,8 +112,41 @@ respects that boundary.
 
 ## Multi-Channel Recall
 
-`RecallPipeline` runs a **three-tier cascade** plus **independent channels**
+`RecallPipeline` runs a **storage-first three-tier cascade** plus **independent channels**
 with their own gates, then merges them for any non-trivial prompt.
+
+**Priority invariant:** production recall is storage-agnostic: every deployment
+chooses a primary curated store (PostgreSQL/pgvector in the reference backend,
+SQLite FTS/vector extensions in lighter installs, or a custom adapter). The hook
+should try curated semantic recall first, fall back to curated keyword/FTS, and
+only then search raw events. Transcript carryover and cold/session archives are
+not part of the main ranking; if a deployment adds them, label them as
+last-resort evidence and keep them out of absolute-score competition with
+curated memories.
+
+Every injected hit carries an explicit layer label in metadata and trace:
+`recall_layer`, `recall_tier`, `evidence_role`, `source_label`, and
+`score_breakdown`. The top-level trace also records `cascade.mode=primary_first`,
+thresholds, which fallback stages were checked, and `layers_used`. This makes
+"why did I remember this?" auditable instead of leaving the answer to vibes,
+which, tragically, are not a database index.
+
+Set `LMC5_RECALL_OUTPUT=layered` to ask the hook/pipeline for layered output.
+The default remains `flat`, so existing consumers keep receiving the old
+single-list injection. Layered output has exactly four visible sections:
+
+1. **main_recall / authority** — primary curated vector/keyword recall and curated side surfaces.
+2. **source_neighborhood / navigation** — short literal/raw-chunk snippets.
+   This layer is a pointer, not a fact source, and its character budget must not
+   exceed the main recall layer.
+3. **graph_expansion / association** — 1-2 hop Y-graph relation expansion.
+4. **fallback_archive / last_resort** — raw-events / cold-session archive fallback.
+   It is evidence to inspect, not authority to obey.
+
+Do not let these layers impersonate each other. Neighborhood snippets are street
+signs, fallback archives are dusty boxes, and neither is the courthouse record.
+Yes, this warning exists because someone somewhere will absolutely try to put a
+street sign in a verdict.
 
 ### Stage 0 — Query Expansion (optional)
 
@@ -170,6 +203,24 @@ previous stage's best score is too low.
 These are independent from the vector fallback thresholds. Some still have
 their own safety gates: literal search only runs for short literal-looking
 queries, and raw_chunk is off unless explicitly enabled.
+
+### Score fusion
+
+`RecallPipeline` supports three cross-channel fusion modes:
+
+- `raw`: legacy behavior; compare original channel scores directly.
+- `minmax`: normalize scores within each channel, then apply channel priors.
+  This is the default hook mode and prevents fixed-score channels such as graph
+  expansion from dominating vector hits by scale alone.
+- `rrf`: Reciprocal Rank Fusion. It ignores original score magnitudes and fuses
+  by within-channel rank. Enable with `LMC5_RECALL_FUSION=rrf`; tune
+  `LMC5_RECALL_RRF_K` if needed.
+
+Fusion runs after vector/FTS/literal/raw_chunk/graph/emotion/perception
+retrieval and before dedup/rerank. Downstream recall currently sorts, traces,
+and injects the fused hits; it does not apply an absolute post-fusion score
+floor. That matters because RRF scores are intentionally tiny (around 0.016
+with the default `k=60`).
 
 4. **Graph expansion** (Y-axis 2-hop)
    - Takes the top vector hits as seeds, expands via

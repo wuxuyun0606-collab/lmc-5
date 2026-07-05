@@ -42,7 +42,7 @@ matched to different deployment shapes:
 | Reflection | — | Weekly / monthly narrative timeline |
 | E axis | Field placeholders | Provider-agnostic LLM scorer with retry + min-confidence + shadow-period helper |
 | Hooks | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` for Claude Code |
-| Operations | — | Forge (session continuity) + Swap (snapshot rollback) reference patterns |
+| Operations | — | Forge (session continuity) + Refined Session Carryover + Swap (snapshot rollback) reference patterns |
 | Best for | Prototypes, demos, <5k vectors, offline | VPS 7×24 deployments, persona-class agents, multi-month continuity |
 
 The minimal impl `pip install -e .` and runs `python examples/demo.py`.
@@ -102,7 +102,8 @@ For the full checklist, read
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md) (six policy switches),
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md) (backend + embedder choices),
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (VPS shape + cron/systemd),
-> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md) (session continuity + rollback), and
+> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md) (session continuity + refined carryover + rollback),
+> [docs/REFINED_SESSION_CARRYOVER.md](docs/REFINED_SESSION_CARRYOVER.md), and
 > [docs/DEEPSEEK_INTEGRATION.md](docs/DEEPSEEK_INTEGRATION.md) (housekeeper LLM role).
 
 ## The Model
@@ -254,6 +255,29 @@ This makes "infinite sessions" an operational pattern, not a fantasy prompt.
 Each window can end, compact, crash, or restart; the VPS keeps the memory clock
 running and forges a fresh launch context from reviewed memory plus recent
 evidence.
+
+### Refined Session Carryover Plan
+
+For Claude Code deployments, a transcript resume should not blindly carry the
+last 80k-100k tokens. That old tail-cache approach is seamless, but sometimes
+the tail is mostly engineering noise: tool logs, stack traces, hook dumps,
+paths, SQL, or stale debugging.
+
+Refined Session Carryover keeps only the parts worth inheriting:
+
+```text
+previous Claude Code transcript
+  -> score dialogue events
+  -> keep high-signal memory/state + short clean tail
+  -> write a new transcript
+  -> claude --resume <new-session-id>
+```
+
+Use it when a live Claude Code window is about to hit context limits and you
+want continuity without dragging prompt trash forward. If recent context looks
+policy/AUP poisoned, start a fresh window and let durable LMC-5 recall rebuild
+context instead. See
+[docs/REFINED_SESSION_CARRYOVER.md](docs/REFINED_SESSION_CARRYOVER.md).
 
 ### Swap Plan
 
@@ -550,8 +574,16 @@ lmc5 vector-search --db demo.sqlite \
 ## Three-Tier Recall Cascade
 
 The production recall pipeline (`extras/pgvector_backend/recall_pipeline.py`)
-is not “five channels in parallel”. It is a **three-tier cascade with
+is not “five channels in parallel”. It is a **storage-first three-tier cascade with
 progressive fallback** plus independent channels with their own gates.
+
+Production priority invariant: recall is storage-agnostic, but it must be
+role-ordered. Pick one primary curated store (PostgreSQL/pgvector in the
+reference backend, SQLite FTS/vector extensions in lighter installs, or a custom
+adapter), try curated semantic recall first, fall back to curated keyword/FTS,
+and only then search raw events. Transcript tails and cold/session archives must
+not outrank the curated path or mix into the main ranking unless a deployment
+explicitly wires them as labeled last-resort evidence.
 
 ```text
                     query
@@ -562,14 +594,14 @@ progressive fallback** plus independent channels with their own gates.
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
-           │  Stage 1: Vector    │  pgvector halfvec ANN
+           │  Stage 1: Vector    │  primary curated vector index
            │  (semantic main)    │  each expanded query → merge best scores
            └──────────┬──────────┘
                       │
               top_score >= 0.45? ──── yes ──→ skip FTS
                       │ no
            ┌──────────▼──────────┐
-           │  Stage 2: FTS       │  curated_memories tsvector
+           │  Stage 2: FTS       │  curated keyword/FTS index
            │  (keyword fallback) │  each expanded query → merge
            └──────────┬──────────┘
                       │
@@ -631,6 +663,11 @@ to enable. Without it, the pipeline uses the raw query only.
 | `recent_raw_chunk_top_k` | 1 | Max temporary raw-chunk bridge hits |
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | Hook env var: enable exact raw-events channel |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | Hook env var: enable optional recent raw_chunk bridge |
+| `LMC5_RECALL_FUSION` | `minmax` | Hook env var: recall score fusion mode (`raw`, `minmax`, `rrf`) |
+| `LMC5_RECALL_RRF_K` | 60 | Hook env var: RRF smoothing constant when fusion mode is `rrf` |
+| `LMC5_RECALL_OUTPUT` | `flat` | Hook env var: `flat` legacy list output, or `layered` authority/navigation/association/fallback sections |
+| `nap.run_nap` | callable | Nap can run in two places: independently at session switch, and optionally inside `DreamRunner` before hippocampus; it backfills missing vectors + lightly links orphan memories |
+| `patrol.run_patrol` | callable | Night patrol: health checks, expire duplicate/orphan relation edges, optional DeepSeek reviewer |
 | `injection_budget_chars` | 4000 | Max chars in the final injection text |
 
 The cascade is **not** “run everything and pick the best”. It is
@@ -640,6 +677,17 @@ activates when the first two came up empty. The literal raw-events channel is
 the exception: it is a small exact-match lane for short proper nouns, codenames,
 quoted phrases, and CJK terms. It prevents a weak vector hit from vetoing an
 exact raw log match.
+
+Score fusion happens only after channel retrieval. The `minmax` default keeps
+channel scales comparable; `rrf` is available when channel scores are not
+trustworthy, and downstream recall does not apply absolute score floors after
+fusion.
+
+Layered output is opt-in. `flat` remains the default for existing consumers.
+`layered` separates `main_recall` (authority), `source_neighborhood` (short
+navigation snippets), `graph_expansion` (association), and `fallback_archive`
+(last-resort raw/cold archive evidence). Neighborhood and fallback text are
+budgeted so raw logs cannot drown the curated main layer.
 
 See [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) for the full
 pipeline diagram and wiring examples.
@@ -683,6 +731,9 @@ extras/pgvector_backend/             # PRODUCTION reference impl — PG + ANN + 
   recall_pipeline.py                 # 5-channel parallel recall
   embedders.py                       # Gemini / Voyage / OpenAI / local BGE-M3 adapters
   rerankers.py                       # DeepSeek / OpenAI / Voyage rerank-2 adapters
+
+extras/claude_code/
+  refined_session_carryover.py       # 精炼续窗 / filtered transcript resume helper
   hooks/                             # Claude Code hook entrypoints
     session_start.py                 #   boot-time startup pack injection
     user_prompt_submit.py            #   per-turn multi-channel recall injection

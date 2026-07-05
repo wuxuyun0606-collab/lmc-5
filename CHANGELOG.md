@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **Refined Session Carryover / 精炼续窗.** New Claude Code helper
+  `extras/claude_code/refined_session_carryover.py` plus
+  `docs/REFINED_SESSION_CARRYOVER.md`. This replaces the old
+  "keep the last 80k-100k tokens" transcript tail-cache recommendation with a
+  filtered resume bridge: keep high-signal memory/state and a short natural
+  tail, drop tool logs / tracebacks / hook dumps / paths / long JSON, and fail
+  closed on recent AUP/policy poison.
 - **Heartbeat detector.** New module
   `extras/pgvector_backend/heartbeat_detector.py` — automatically detects
   heartbeat moments (intimacy, physical reactions, nickname shifts) and

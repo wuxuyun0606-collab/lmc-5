@@ -77,7 +77,7 @@ yourself.
 | `ob_recall.py` | upgrades `scoring.py` | Ombre-Brain-style score with category half-life, time ripple, Russell distance for emotional resonance. Decay formula shared between write-time and metabolism. |
 | `e_axis_scorer.py` | upgrades the E axis | LLM-based emotional scoring with categorized failure logs, exponential-backoff retry on retryable failures (timeout / empty / non-JSON), `min_confidence` gate, and `is_in_shadow_period(...)` helper so the shadow window is enforced in code, not in discipline. Provider-agnostic — pass any `llm_call(prompt, timeout) -> str` callable. |
 | `e_axis_trigger.py` | the missing "should we score this?" layer | `should_score_e_axis(candidate)` with type-based / keyword-based / relation-hint-based gates (CN+EN keywords). `EAxisDispatcher` chains gate → scorer → write-back. `backfill_e_axis()` for nightly batch coverage. Plugs into `NightDream(e_axis_dispatcher=...)` so the scorer actually fires on write. |
-| `dream_runner.py` | new — the nightly pipeline orchestrator | Chains the full dream pass into one cron-able entry: consolidate → hippocampus → heartbeat_detect → e_axis_backfill → per-thread `timeline_sweep` → narrative_weekly → narrative_monthly (first 3 days of month) → z_audit → patrol. Includes `DreamSchedule` for the tested daily 04:00 local schedule. Each step is an injected callable; `None` = skip. Failure-isolated — one step or one timeline crashing doesn't block the rest. CLI: `python -m extras.pgvector_backend.dream_runner [--dry-run]`. |
+| `dream_runner.py` | new — the nightly pipeline orchestrator | Chains the full dream pass into one cron-able entry: consolidate → nap → hippocampus → heartbeat_detect → e_axis_backfill → per-thread `timeline_sweep` → narrative_weekly → narrative_monthly (first 3 days of month) → z_audit → patrol. `nap` is reused here for nightly hygiene, but `run_nap` remains an independent session-switch entrypoint. Includes `DreamSchedule` for the tested daily 04:00 local schedule. Each step is an injected callable; `None` = skip. Failure-isolated — one step or one timeline crashing doesn't block the rest. CLI: `python -m extras.pgvector_backend.dream_runner [--dry-run]`. |
 | `heartbeat_detector.py` | new — the missing "what to save" layer for persona | Detects heartbeat moments (intimacy / physical reactions / nickname shifts) and emotional fragments (breakdown / crying / late-night emo / self-denial) from conversation chunks. Keyword gate (CN+EN bilingual) + optional LLM confirmation. Outputs detector candidates only; convert with `to_hippocampus_candidate_dict()` and feed hippocampus/NightDream. Do **not** directly insert detector raw text into curated memories. |
 | `heartbeat_trigger.py` | new — real-time heartbeat detection for hooks | Per-message keyword gate with a default 10-turn reminder throttle. Injects a prompt into additionalContext only when a matched heartbeat signal is outside the throttle window. Optional scene_lookup surfaces the last similar heartbeat. The AI decides whether to save — trigger ≠ auto-store. |
 | `recall_pipeline.py` | new — closes the "store-to-conversation" gap | Full pipeline: optional Query Expansion (LLM → 2-4 search angles) → three-tier cascade (vector → curated FTS → raw-events FTS) → three independent channels (Y-graph 2-hop / Russell emotion / spontaneous) → merge/dedup → optional rerank. Includes `query_expand_adapter` helper for DeepSeek/any LLM. |
@@ -122,8 +122,46 @@ Start with the file docstrings — each one explains:
 3. What this version adds
 4. How to integrate (pseudocode example at the top)
 
+### Recall priority
+
+This backend is storage-first by design:
+
+1. A primary curated semantic adapter is the main path (`pgvector` over
+   `lmc5_curated_memories` / `lmc5_vectors` in this reference backend; SQLite or
+   custom adapters can expose the same role).
+2. curated FTS / keyword search is the fallback when semantic confidence is weak.
+3. Raw-events FTS is the last-resort journal search.
+4. Literal raw-events / raw_chunk / graph / emotion / perception are gated side
+   channels, not replacements for the curated main path.
+
+Do not mix legacy SQLite rows, transcript tails, or cold/session archive cards
+into the same main ranking unless you explicitly label and gate them as
+last-resort evidence.
+
+`RecallPipeline.trace` and every hit's `metadata` expose the layer decision:
+`recall_layer`, `recall_tier`, `evidence_role`, `source_label`, channel
+`score_breakdown`, and top-level cascade gates (`fts_checked`,
+`raw_events_checked`, etc.). Keep these fields when building UI/debug output;
+they are the guardrail that prevents "main memory", "raw evidence", and "cold
+archive hint" from wearing the same fake mustache.
+
+Set `LMC5_RECALL_OUTPUT=layered` or `RecallPipeline(output_mode="layered")` to
+return a four-section `RecallResult.layers`: `main_recall` (authority),
+`source_neighborhood` (short navigation), `graph_expansion` (association), and
+`fallback_archive` (last-resort raw/cold archive evidence).
+`flat` is still the default; old consumers do not need to know this feature
+exists until they grow up and ask for a map.
+
 `vector_pgvector.py` is the smallest piece and the most directly swappable.
 Begin there if you only want a faster vector backend.
+
+### Dream result reporting
+
+`DreamRunner.run()` returns a `DreamResult` with both a human-readable
+`summary` and a structured `to_dict()` payload. The payload includes `ok`,
+`step_counts`, per-step status/duration/error fields, and timeline sweep
+sub-results. Use `to_dict()` for nightly logs, dashboards, or Telegram reports
+so a failed X-line cleanup does not get mistaken for a failed whole dream run.
 
 `night_dream.py` and `narrative_timeline.py` matter most for **long-running
 agents** — a deployment that runs for months and needs to remember what

@@ -66,6 +66,10 @@ Operational patterns documented in the repository:
   half-lives, spontaneous recall, relationship moments protected).
 - **Forge** (`docs/FORGE_AND_SWAP.md`) — recoverable session continuity
   when the application LLM hits its context window or quota ceiling.
+- **Refined Session Carryover / 精炼续窗**
+  (`docs/REFINED_SESSION_CARRYOVER.md`) — filtered Claude Code
+  transcript resume that keeps high-signal state and drops engineering
+  noise from the next window.
 - **Swap** (`docs/FORGE_AND_SWAP.md`) — snapshot-based rollback around
   bulk-mutation passes so a bad housekeeper run is reversible.
 - **VPS 7×24 deployment** (`docs/DEPLOYMENT.md`) — cron / systemd timer

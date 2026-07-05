@@ -238,6 +238,11 @@ Forge treats each new agent session as a recoverable launch, not a blank start:
 surface the active project, include pending Z and patrol state, and let the next
 window continue from durable memory instead of stale prompt residue.
 
+Refined Session Carryover ("精炼续窗") is the Claude Code transcript-resume
+bridge: filter the previous JSONL transcript, keep high-signal state and a short
+clean tail, drop engineering noise, then resume with `claude --resume`. It
+replaces the old raw tail-cache pattern for live window renewal.
+
 Swap treats the SQLite store as operational state: snapshot before scheduled
 writes, keep a warm copy for quick rollback, and never let a bad nightly job be
 the only copy of memory truth.

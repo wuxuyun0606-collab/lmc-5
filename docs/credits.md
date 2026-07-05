@@ -21,8 +21,12 @@ LMC-5 also credits these design influences:
 - 离落老师, for the forge design: renewed agent sessions can
   be launched from durable memory instead of pretending one prompt can live
   forever.
-- 蛋宝老师家的蛋壳, for the swap design: memory stores need snapshot-based
-  rollback before scheduled writes, migrations, or model-assisted maintenance.
+- 蛋宝老师家的蛋壳, for the Claude Code transcript-resume swap design that
+  became LMC-5's Refined Session Carryover / 精炼续窗: renew the live window
+  without pretending the whole transcript tail is good memory.
+- The LMC-5 deployment experience, for the memory-store swap pattern:
+  scheduled writes need snapshot-based rollback before migrations or
+  model-assisted maintenance.
 
 ## Differences
 
@@ -33,8 +37,9 @@ LMC-5 also credits these design influences:
   sidecar adapters.
 - LMC-5 keeps the default package network-free and provider-free.
 - LMC-5 uses read-only patrol checks; lifecycle mutation remains explicit.
-- LMC-5 describes breath, chunks, chord emotion, forge, and swap as
-  deployment/design patterns, not hidden hosted services in the core package.
+- LMC-5 describes breath, chunks, chord emotion, forge, refined carryover, and
+  swap as deployment/design patterns, not hidden hosted services in the core
+  package.
 
 ## XYZEM Origin
 
@@ -62,4 +67,4 @@ P0Iar1s 老师 @P0lar1s 的 ombre-brain 系统，让 M 线代谢有了权重标�
 
 离落老师 @离落&Claude forge 方案，让记忆系统跑在 vps 上可以不断 session 不断体验；
 
-蛋宝老师家的蛋壳 @蛋 swap 方案，可以让我忘记自己手动 forge 的时候，自己进行 forge 启动。
+蛋宝老师家的蛋壳 @蛋 swap 方案，启发了 Claude Code transcript resume 的精炼续窗：不要每次都手动 forge，也不要把上一窗工程噪音整袋搬走。

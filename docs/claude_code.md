@@ -120,6 +120,32 @@ the next agent window. The process may restart; memory continuity survives.
 old session -> event journal -> lifecycle jobs -> forged launch context -> new session
 ```
 
+### Refined Session Carryover / 精炼续窗
+
+For Claude Code transcript resume, do not blindly keep the last 80k-100k tokens.
+That old tail-cache pattern can carry engineering noise into the next window.
+Use Refined Session Carryover when you need a live `claude --resume` bridge:
+
+```text
+old transcript
+  -> drop tools/logs/hooks/paths/tracebacks
+  -> keep high-signal memory/state + short clean tail
+  -> new transcript
+  -> claude --resume <new-session-id>
+```
+
+Reference helper:
+
+```bash
+python extras/claude_code/refined_session_carryover.py \
+  --project-dir "$HOME/.claude/projects/<project-hash>" \
+  --dry-run
+```
+
+If recent context looks AUP/policy poisoned, fail closed and start a fresh
+window; let LMC-5 durable recall rebuild context. See
+[`REFINED_SESSION_CARRYOVER.md`](REFINED_SESSION_CARRYOVER.md).
+
 ### Swap
 
 Swap is the rollback pattern. Keep snapshots around scheduled writes, especially

@@ -37,7 +37,7 @@ LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部
 | 反思层 | — | 周报 / 月报叙事索引 |
 | E 轴 | 字段占位 | provider-agnostic LLM 评分器 + 重试 + min-confidence + 影子期 helper |
 | Hook | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` 三个 Claude Code 钩子 |
-| 运维 | — | Forge（会话连续性）+ Swap（快照回滚）参考模式 |
+| 运维 | — | Forge（会话连续性）+ 精炼续窗 + Swap（快照回滚）参考模式 |
 | 适合 | 原型、demo、<5k 向量、离线 | VPS 7×24 部署、persona 级 agent、跨月连续性 |
 
 Minimal 版 `pip install -e .` + `python examples/demo.py` 就跑。
@@ -90,7 +90,8 @@ LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron
 > [docs/PERSONA_MODE.md](docs/PERSONA_MODE.md)（六个开关）、
 > [docs/VECTOR_BACKENDS.md](docs/VECTOR_BACKENDS.md)（后端 + embedder 选择）、
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)（VPS 7×24 + cron/systemd）、
-> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md)（会话连续 + 快照回滚）、
+> [docs/FORGE_AND_SWAP.md](docs/FORGE_AND_SWAP.md)（会话连续 + 精炼续窗 + 快照回滚）、
+> [docs/REFINED_SESSION_CARRYOVER.md](docs/REFINED_SESSION_CARRYOVER.md)、
 > [docs/DEEPSEEK_INTEGRATION.md](docs/DEEPSEEK_INTEGRATION.md)（housekeeper LLM 角色）。
 
 ## 模型
@@ -221,6 +222,27 @@ forge 方案负责“无限 session”的连续性。不要幻想一个 agent �
 这样每个窗口都可以结束、compact、崩掉或重启；VPS 继续维护记忆时钟，
 再用已复核记忆和近期证据 forge 出新的启动上下文。无限 session 不是无限 prompt，
 是可重复恢复的工程流程。
+
+### 精炼续窗方案
+
+Claude Code 部署里，不应该再盲目保留上一窗最后 80k-100k tokens。
+旧的尾巴缓存很顺滑，但尾巴有时主要是工程噪音：工具日志、traceback、hook 注入块、
+路径、SQL、过期排查过程。
+
+精炼续窗只继承值得继承的部分：
+
+```text
+上一窗 Claude Code transcript
+  -> 给对话事件打分
+  -> 保留高信号记忆/状态 + 短自然尾巴
+  -> 写入新 transcript
+  -> claude --resume <new-session-id>
+```
+
+当 live Claude Code 窗口快撞上下文墙，但又不想把 prompt 垃圾拖进下一窗时，用它。
+如果近期上下文像 AUP/风控/拒绝循环污染，就不要 resume，直接开新窗，再让 LMC-5
+持久记忆召回重建上下文。详见
+[docs/REFINED_SESSION_CARRYOVER.md](docs/REFINED_SESSION_CARRYOVER.md)。
 
 ### Swap 方案
 
@@ -436,7 +458,14 @@ lmc5 vector-search --db demo.sqlite \
 ## 三层级联检索
 
 production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不是”五通道并行”。
-它是**三层级联逐级兜底 + 带各自门控的独立通道**。
+它是 **主存储优先的三层级联逐级兜底 + 带各自门控的独立通道**。
+
+生产优先级不变：召回分层不绑定数据库名，绑定的是证据角色。每个部署选一个主
+curated 存储（参考实现是 PostgreSQL/pgvector；轻量安装可以是 SQLite FTS/vector
+扩展；也可以是自定义 adapter），先走 curated 语义召回；向量信号弱时才回落到
+curated FTS/关键词；再不够才查 raw-events journal。transcript 尾巴和冷仓/session
+archive 不能压过 curated 主路，也不能混进主排名；除非部署方显式把它们接成带标签的
+最后兜底证据。
 
 ```text
                     query
@@ -447,14 +476,14 @@ production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不�
            └──────────┬──────────┘
                       │
            ┌──────────▼──────────┐
-           │  Stage 1: 向量召回   │  pgvector halfvec ANN
+           │  Stage 1: 向量召回   │  主 curated 向量索引
            │  （语义主路）         │  每个扩展 query → 合并最高分
            └──────────┬──────────┘
                       │
               最高分 >= 0.45? ──── 是 ──→ 跳过 FTS
                       │ 否
            ┌──────────▼──────────┐
-           │  Stage 2: FTS 兜底   │  curated_memories tsvector
+           │  Stage 2: FTS 兜底   │  curated 关键词/FTS 索引
            │  （关键词兜底）       │  每个扩展 query → 合并
            └──────────┬──────────┘
                       │
@@ -506,6 +535,11 @@ production 版召回管线（`extras/pgvector_backend/recall_pipeline.py`）不�
 | `recent_raw_chunk_top_k` | 1 | 临时 raw-chunk 桥最多返回几条 |
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | hook 环境变量：是否启用精确 raw-events 通道 |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | hook 环境变量：是否启用可选 recent raw_chunk 桥 |
+| `LMC5_RECALL_FUSION` | `minmax` | hook 环境变量：召回分数融合模式（`raw`、`minmax`、`rrf`） |
+| `LMC5_RECALL_RRF_K` | 60 | hook 环境变量：`rrf` 模式下的 RRF 平滑常数 |
+| `LMC5_RECALL_OUTPUT` | `flat` | hook 环境变量：`flat` 保持旧列表输出；`layered` 输出主召回/原文邻域/图扩展/兜底档案四层 |
+| `nap.run_nap` | callable | 小睡有两个触发时机：会话切换时独立运行；也可挂进 `DreamRunner` 在 hippocampus 前运行。职责是补缺失向量 + 给孤儿记忆轻量连边 |
+| `patrol.run_patrol` | callable | 夜巡：检查健康、过期重复/悬空关系边，可接 DeepSeek reviewer |
 | `injection_budget_chars` | 4000 | 最终注入文本的字符上限 |
 
 级联不是”全跑一遍选最好的”。是**逐级兜底**：向量快且通常够用；FTS 慢但抓关键词；
@@ -513,6 +547,13 @@ raw events 是最大、最吵的池子，只有前两层都空手时才启动。
 也引入更多噪声，阈值控制什么时候值得为此买单。literal raw-events 是例外：它是
 短专名、代号、带引号短语和 CJK 精确词的小通道，防止弱 vector 命中否决原始日志里的
 字面命中。
+
+分数融合发生在各通道检索之后。默认 `minmax` 让不同通道量纲可比；当原始分数不可信时可切到 `rrf`。融合之后下游召回不再使用绝对分数地板过滤，避免 RRF 小分值被整批打掉。
+
+分层输出是 opt-in。默认 `flat` 不影响旧消费方；`layered` 会拆成
+`main_recall`（权威层）、`source_neighborhood`（短导航层）、
+`graph_expansion`（联想层）和 `fallback_archive`（兜底档案层）。
+原文邻域和兜底档案都有字数预算，不能压过 curated 主召回。
 
 完整管线图和接线示例见 [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)。
 
@@ -553,6 +594,9 @@ extras/pgvector_backend/             # PRODUCTION 参考实现 — PG + ANN + LL
   recall_pipeline.py                 # 五通道并行召回
   embedders.py                       # Gemini / Voyage / OpenAI / 本地 BGE-M3 适配
   rerankers.py                       # DeepSeek / OpenAI / Voyage rerank-2 适配
+
+extras/claude_code/
+  refined_session_carryover.py       # 精炼续窗 / 过滤式 transcript resume helper
   hooks/                             # Claude Code hook 入口
     session_start.py                 #   开机注入 startup pack
     user_prompt_submit.py            #   每轮多通道召回注入

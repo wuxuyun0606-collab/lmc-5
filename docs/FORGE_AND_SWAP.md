@@ -1,28 +1,35 @@
-# Forge and Swap
+# Forge, Refined Session Carryover, and Swap
 
-> Two operational mechanisms that let an LMC-5-backed agent run on a
-> VPS for months without losing continuity or accumulating broken
-> state. Credits in `docs/credits.md`. This document is the concrete
-> reference pattern.
+> Operational mechanisms that let an LMC-5-backed agent run on a VPS
+> for months without losing continuity, dragging prompt trash forward,
+> or accumulating broken memory state. Credits in `docs/credits.md`.
+> This document is the concrete reference pattern.
 
 ## Why These Two
 
-Two failure modes break long-running agents in opposite directions:
+Three failure modes break long-running agents in different directions:
 
 - **Context window fills up / session token quota hits the ceiling.**
   The user-facing session has to end. Without a recovery mechanism,
   the agent loses everything it was carrying — open threads, current
   focus, last user instruction — even though the durable memory in
   the database is intact.
+- **Transcript resume carries the wrong material.** A naive
+  "keep the last 80k-100k tokens" resume can preserve continuity, but
+  it also preserves tool logs, stack traces, hook dumps, stale
+  engineering exploration, and policy-refusal loops. The next session
+  wakes up warm and dirty.
 - **Maintenance pass goes wrong.** A model-assisted housekeeper run
   produces a bad batch of writes — a hallucinated `supersede`, a wave
   of bogus relations, a decay sweep with the wrong half-life. The
   database is now polluted, and you do not have a clean rollback
   point.
 
-Forge addresses the first. Swap addresses the second. Together they
-turn LMC-5 from "a memory system that survives between sessions" into
-"an agent that survives between months."
+Forge addresses durable session renewal. Refined Session Carryover
+addresses Claude Code transcript resume without carrying junk. Swap
+addresses memory-store rollback. Together they turn LMC-5 from "a
+memory system that survives between sessions" into "an agent that
+survives between months."
 
 ---
 
@@ -130,6 +137,66 @@ not a normal flow.
 
 ---
 
+## Refined Session Carryover — 精炼续窗
+
+**One-sentence definition.** Refined Session Carryover creates a new
+Claude Code transcript from the parts of the previous transcript worth
+inheriting, then resumes with `claude --resume <new-session-id>`.
+
+This replaces the old tail-cache pattern that blindly kept the last
+80k-100k tokens. The old pattern is seamless, but it often carries the
+wrong continuity: engineering logs, tool outputs, hook injections,
+paths, stack traces, long JSON, and even refusal-loop poison.
+
+### What refined carryover keeps
+
+- A short clean natural dialogue tail.
+- High-signal relationship, preference, identity, boundary, promise,
+  and current-state messages.
+- Concise task checkpoints when they matter for the next window.
+
+### What refined carryover drops
+
+- Tool results, shell logs, tracebacks, SQL, paths, diffs, long JSON,
+  and code blocks.
+- Hook injection blocks and recall dumps.
+- Stale engineering exploration that should become a task summary or
+  durable memory, not prompt residue.
+- Recent AUP / policy / refusal-loop poison. If detected, start a
+  fresh window and rely on durable memory recall.
+
+### Reference implementation
+
+The generic helper lives at:
+
+```text
+extras/claude_code/refined_session_carryover.py
+```
+
+Example:
+
+```bash
+python extras/claude_code/refined_session_carryover.py \
+  --project-dir ~/.claude/projects/<project-hash> \
+  --dry-run
+```
+
+Recommended defaults:
+
+- target size: 30k-50k estimated tokens
+- tail: 8-16 clean dialogue events
+- fail closed on recent policy/AUP poison
+- keep a `/new`-style fresh-window command for contaminated sessions
+
+Do not call this "Swap" in user-facing deployment docs. Swap is
+reserved below for memory-store rollback. The transcript-resume
+pattern is **Refined Session Carryover / 精炼续窗**.
+
+For the detailed algorithm, see
+`docs/REFINED_SESSION_CARRYOVER.md`.
+
+---
+
 ## Swap — snapshot-based rollback
 
 **One-sentence definition.** Swap puts a transactional safety net
@@ -231,12 +298,17 @@ Reference policy in the deployment:
 A nightly job runs `cleanup_swap_snapshots.py` to enforce retention.
 Without retention, snapshot tables eat the database in two months.
 
-### Swap and forge together
+### Swap, refined carryover, and forge together
 
 Combined:
 
 ```
-nightly schedule
+runtime + nightly schedule
+  ├── context threshold reached
+  │     ├── refined carryover dry-run
+  │     ├── if clean → write filtered transcript and resume
+  │     └── if poisoned → fresh window + durable recall
+  │
   ├── 04:00 housekeeper run
   │     ├── take swap snapshot (style B)
   │     ├── run hippocampus / Z / Y / M passes
@@ -255,19 +327,22 @@ hallucinating because of bad maintenance writes" mystery.
 
 ---
 
-## What Forge and Swap Buy You Together
+## What Forge, Refined Carryover, and Swap Buy You Together
 
-Without these two:
+Without these three:
 
 - A token-limit hit silently kills the agent and the user has to
   start over with no context. The persona feels disposable.
+- A transcript resume carries the last 100k tokens even when the last
+  100k tokens were mostly engineering noise.
 - A bad housekeeper run pollutes the durable memory and you spend
   the next week chasing data corruption with grep.
 
-With these two:
+With these three:
 
 - Token limits become invisible. The agent forges; the user sees
   "session forged" and keeps talking.
+- Claude Code resume inherits only the parts worth inheriting.
 - Housekeeper runs are auditable and reversible. You can let the
   model touch the database with much less anxiety because mistakes
   do not stick.
@@ -289,6 +364,10 @@ LMC-5 was extracted from:
 - **Forge** came out of repeated context-window cliffs and quota
   resets — the agent kept losing continuity at the worst times. The
   fix was to make session boundaries crossable.
+- **Refined Session Carryover** came out of transcript-resume runs
+  that were seamless but too dirty: the agent carried old engineering
+  logs as if they were current state. The fix was to inherit selected
+  state, not the whole tail.
 - **Swap** came out of a single bad housekeeper run that collapsed
   several months of relationship-moment records before anyone
   noticed. The fix was to make every bulk mutation pass undoable.
