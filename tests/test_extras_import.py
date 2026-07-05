@@ -380,8 +380,8 @@ def test_recall_pipeline_labels_raw_fallback_and_side_channels():
     by_layer = {hit.metadata["recall_layer"]: hit for hit in result.hits}
     assert "raw_events_fts" in by_layer
     assert by_layer["raw_events_fts"].metadata["evidence_role"] == "last_resort"
-    assert "literal_raw_events" in by_layer
-    assert by_layer["literal_raw_events"].metadata["evidence_role"] == "side_channel"
+    assert "source_neighborhood" in by_layer
+    assert by_layer["source_neighborhood"].metadata["evidence_role"] == "navigation"
     assert "raw_events_fts" in result.injection_text
     assert result.trace["cascade"]["raw_events_checked"] is True
     assert result.trace["cascade"]["literal_checked"] is True
@@ -414,13 +414,16 @@ def test_recall_pipeline_layered_output_keeps_layers_separate_and_short():
 
     assert result.layers["mode"] == "layered"
     assert result.layers["main_recall"]["hits"][0]["recall_layer"] == "curated_vector"
-    assert result.layers["source_neighborhood"]["hits"][0]["recall_layer"] == "literal_raw_events"
+    assert result.layers["source_neighborhood"]["hits"][0]["recall_layer"] == "source_neighborhood"
     assert result.layers["graph_expansion"]["hits"][0]["recall_layer"] == "y_graph_expand"
     assert result.layers["source_neighborhood"]["used_chars"] <= 160
     assert "source_neighborhood text budget must not exceed main_recall" in result.layers["rules"][2]
     assert "主召回 / authority" in result.injection_text
     assert "原文邻域 / navigation" in result.injection_text
     assert "图扩展 / association" in result.injection_text
+    assert result.layers["reference_contract"]["reference"] == "kelin_216_runtime_audit_20260706"
+    assert result.layers["source_neighborhood"]["hits"][0]["evidence_role"] == "navigation"
+    assert result.layers["graph_expansion"]["hits"][0]["evidence_role"] == "association"
 
 
 def test_recall_pipeline_layered_output_separates_last_resort_fallback():
@@ -448,6 +451,69 @@ def test_recall_pipeline_layered_output_separates_last_resort_fallback():
     assert result.layers["fallback_archive"]["hits"][0]["recall_layer"] == "raw_events_fts"
     assert result.layers["fallback_archive"]["hits"][0]["evidence_role"] == "last_resort"
     assert "兜底档案 / fallback" in result.injection_text
+
+
+def test_recall_pipeline_cold_archive_only_opens_when_warmer_layers_empty():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    calls = {"cold": 0}
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="main", content="main",
+                          score=0.8, channel="vector")]
+
+    def fake_cold(q, k):
+        calls["cold"] += 1
+        return [RecallHit(source_id=99, title="cold", content="old",
+                          score=0.35, channel="cold_archive",
+                          metadata={"namespace": "cold_archive"})]
+
+    warm = RecallPipeline(
+        vector_search=fake_vector,
+        cold_archive_search=fake_cold,
+        output_mode="layered",
+    ).recall("test")
+
+    assert calls["cold"] == 0
+    assert warm.layers["fallback_archive"]["hits"] == []
+
+    empty = RecallPipeline(
+        vector_search=lambda q, k: [],
+        cold_archive_search=fake_cold,
+        output_mode="layered",
+    ).recall("forgotten")
+
+    assert calls["cold"] == 1
+    assert empty.layers["fallback_archive"]["hits"][0]["recall_layer"] == "cold_archive"
+    assert empty.trace["cascade"]["cold_archive_checked"] is True
+
+
+def test_recall_pipeline_graph_can_seed_from_curated_fts_when_vector_empty():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    seen = {}
+
+    def fake_fts(q, k):
+        return [RecallHit(source_id=42, title="keyword-main", content="keyword",
+                          score=0.7, channel="fts")]
+
+    def fake_graph(seed_ids, hops):
+        seen["seed_ids"] = seed_ids
+        return [RecallHit(source_id=43, title="neighbor", content="linked",
+                          score=0.8, channel="graph")]
+
+    result = RecallPipeline(
+        vector_search=lambda q, k: [],
+        fts_search=fake_fts,
+        graph_expand=fake_graph,
+        output_mode="layered",
+        final_top_k=2,
+    ).recall("proper noun")
+
+    assert seen["seed_ids"] == [42]
+    assert result.layers["main_recall"]["hits"][0]["recall_layer"] == "curated_fts"
+    assert result.layers["main_recall"]["hits"][0]["evidence_role"] == "main"
+    assert result.layers["graph_expansion"]["hits"][0]["recall_layer"] == "y_graph_expand"
 
 
 def test_recall_pipeline_flat_output_stays_default():

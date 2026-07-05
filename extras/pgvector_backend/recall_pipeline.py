@@ -34,6 +34,7 @@ _SCORE_COMPONENT_BY_CHANNEL = {
     "literal": "literal",
     "raw_events": "raw_events",
     "raw_chunk": "recent_raw_chunk",
+    "cold_archive": "cold_archive",
     "graph": "relation",
     "emotion": "emotion",
     "perception": "perception",
@@ -44,6 +45,7 @@ _DEFAULT_CHANNEL_WEIGHTS = {
     "literal": 1.0,
     "raw_events": 0.9,
     "raw_chunk": 0.8,
+    "cold_archive": 0.4,
     "graph": 0.8,
     # emotion_resonate currently often behaves like a boolean channel. Keep
     # its prior modest until the resonance score has real spread.
@@ -51,6 +53,17 @@ _DEFAULT_CHANNEL_WEIGHTS = {
     "perception": 0.6,
 }
 _SCORE_FUSIONS = {"raw", "minmax", "rrf"}
+_KELIN_216_RUNTIME_CONTRACT = {
+    "reference": "kelin_216_runtime_audit_20260706",
+    "invariants": [
+        "primary curated PG/pgvector recall is authority",
+        "literal/raw-neighborhood snippets are navigation, not authority",
+        "safe relation and temporal edges are association, not proof",
+        "raw events and cold archives are last-resort evidence, not active fact",
+        "SQLite/imprint/transcript-style stores must stay auxiliary when PG exists",
+    ],
+}
+
 _RECALL_LAYER_BY_CHANNEL = {
     # Main storage-first cascade. PG is one implementation; SQLite/custom
     # backends should keep the same evidence roles while swapping adapters.
@@ -63,7 +76,9 @@ _RECALL_LAYER_BY_CHANNEL = {
     "fts": {
         "recall_layer": "curated_fts",
         "recall_tier": 2,
-        "evidence_role": "fallback",
+        # Kelin's 216 runtime keeps keyword/FTS inside the PG/curated authority
+        # section. It is a fallback *method*, not a lower evidence class.
+        "evidence_role": "main",
         "source_label": "curated / keyword-FTS",
     },
     "raw_events": {
@@ -72,25 +87,31 @@ _RECALL_LAYER_BY_CHANNEL = {
         "evidence_role": "last_resort",
         "source_label": "raw-events journal / FTS",
     },
+    "cold_archive": {
+        "recall_layer": "cold_archive",
+        "recall_tier": 99,
+        "evidence_role": "last_resort",
+        "source_label": "cold/session archive fallback",
+    },
     # Gated side channels. These may help, but they do not replace the
     # curated main path and should stay labeled in traces/injection text.
     "literal": {
-        "recall_layer": "literal_raw_events",
+        "recall_layer": "source_neighborhood",
         "recall_tier": 30,
-        "evidence_role": "side_channel",
-        "source_label": "literal raw-events",
+        "evidence_role": "navigation",
+        "source_label": "raw-event source neighborhood",
     },
     "raw_chunk": {
         "recall_layer": "recent_raw_chunk_bridge",
         "recall_tier": 31,
-        "evidence_role": "bridge",
+        "evidence_role": "navigation",
         "source_label": "recent raw-chunk bridge",
     },
     "graph": {
         "recall_layer": "y_graph_expand",
         "recall_tier": 40,
-        "evidence_role": "side_channel",
-        "source_label": "Y graph relation expansion",
+        "evidence_role": "association",
+        "source_label": "safe relation / time association",
     },
     "emotion": {
         "recall_layer": "emotion_resonance",
@@ -284,6 +305,7 @@ class RecallPipeline:
         raw_events_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
         literal_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
         recent_raw_chunk_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
+        cold_archive_search: Optional[Callable[[str, int], list[RecallHit]]] = None,
         rerank: Optional[Callable[[str, list[RecallHit], int], list[RecallHit]]] = None,
         query_expand: Optional[Callable[[str], list[str]]] = None,
         vector_top_k: int = 8,
@@ -292,6 +314,7 @@ class RecallPipeline:
         literal_top_k: int = 3,
         literal_query_max_chars: int = 80,
         recent_raw_chunk_top_k: int = 1,
+        cold_archive_top_k: int = 3,
         graph_hops: int = 2,
         graph_max_expand: int = 10,
         emotion_top_k: int = 2,
@@ -325,6 +348,8 @@ class RecallPipeline:
                                           不被 vector top_score 门控）
             Independent: recent_raw_chunk_search （可选急救桥；极小 top_k，补
                                                    SessionEnd 到夜间精炼之间的空窗）
+            Last resort: cold_archive_search （可选冷归档；只有主召回/FTS/raw/literal
+                                               全空时才开箱）
 
         其他通道（literal / raw_chunk / graph / emotion / spontaneous）独立并行，
         不在 fallback 链上。
@@ -338,6 +363,9 @@ class RecallPipeline:
                             short literal-looking queries
             recent_raw_chunk_search: (query, top_k) → temporary recent-session
                                      chunk hits; keep top_k tiny
+            cold_archive_search: (query, top_k) → cold/session archive hits.
+                                 It is never authority and only runs when the
+                                 warmer layers found nothing.
             graph_expand: (seed_ids, hops) → 关系图扩展 hits
             emotion_resonate: (query, top_k) → Russell 情绪联想 hits
             spontaneous: (top_k) → 自发浮现 hits（不查询，按概率冒出）
@@ -366,6 +394,7 @@ class RecallPipeline:
             ("raw_events_search", raw_events_search),
             ("literal_search", literal_search),
             ("recent_raw_chunk_search", recent_raw_chunk_search),
+            ("cold_archive_search", cold_archive_search),
             ("graph_expand", graph_expand),
             ("emotion_resonate", emotion_resonate),
             ("spontaneous", spontaneous),
@@ -382,6 +411,7 @@ class RecallPipeline:
         self.raw_events_search = raw_events_search
         self.literal_search = literal_search
         self.recent_raw_chunk_search = recent_raw_chunk_search
+        self.cold_archive_search = cold_archive_search
         self.query_expand = query_expand
         self.graph_expand = graph_expand
         self.emotion_resonate = emotion_resonate
@@ -394,6 +424,7 @@ class RecallPipeline:
         self.literal_top_k = literal_top_k
         self.literal_query_max_chars = literal_query_max_chars
         self.recent_raw_chunk_top_k = recent_raw_chunk_top_k
+        self.cold_archive_top_k = cold_archive_top_k
         self.graph_hops = graph_hops
         self.graph_max_expand = graph_max_expand
         self.emotion_top_k = emotion_top_k
@@ -584,6 +615,7 @@ class RecallPipeline:
         """
         layers: dict[str, Any] = {
             "mode": "layered",
+            "reference_contract": dict(_KELIN_216_RUNTIME_CONTRACT),
             "rules": [
                 "layers must not impersonate each other",
                 "source_neighborhood is short navigation, not authority",
@@ -630,9 +662,9 @@ class RecallPipeline:
                 or "archive" in namespace
             ):
                 fallback_hits.append(hit)
-            elif hit.channel == "graph":
+            elif hit.channel == "graph" or evidence_role == "association":
                 graph_hits.append(hit)
-            elif hit.channel in {"literal", "raw_chunk"}:
+            elif hit.channel in {"literal", "raw_chunk"} or evidence_role == "navigation":
                 neighborhood_hits.append(hit)
             else:
                 main_hits.append(hit)
@@ -758,6 +790,7 @@ class RecallPipeline:
             "channel_counts": channel_counts,
             "layers_used": layers_used,
             "priority": "curated_vector -> curated_fts -> raw_events_fts; side channels stay labeled",
+            "reference_contract": dict(_KELIN_216_RUNTIME_CONTRACT),
             "cascade": cascade_trace,
             "hits": trace_hits,
         }
@@ -790,6 +823,8 @@ class RecallPipeline:
             "raw_events_checked": False,
             "literal_checked": False,
             "recent_raw_chunk_checked": False,
+            "cold_archive_checked": False,
+            "cold_archive_policy": "only_when_warmer_layers_empty",
         }
 
         # 0. Query Expansion（可选 · LLM 扩展多角度搜索词）
@@ -845,6 +880,7 @@ class RecallPipeline:
 
         # 2. FTS 兜底 1 · curated_memories（向量分都低时才走，避免空回）
         top_vec_score = max((h.score for h in vector_hits), default=0.0)
+        fts_hits: list[RecallHit] = []
         cascade_trace["top_vector_score"] = _round_score(top_vec_score)
         if self.fts_search is not None and top_vec_score < self.fts_floor:
             cascade_trace["fts_checked"] = True
@@ -864,6 +900,7 @@ class RecallPipeline:
 
         # 2b. FTS 兜底 2 · raw events journal（更严苛的阈值——只有真正捞不到时才查
         #     原始对话日志，因为这层数据量大、噪声多）
+        raw_hits: list[RecallHit] = []
         if self.raw_events_search is not None and top_vec_score < self.raw_events_floor:
             cascade_trace["raw_events_checked"] = True
             raw_merged: dict[int, RecallHit] = {}
@@ -894,10 +931,34 @@ class RecallPipeline:
                 channels_used.append("raw_chunk")
                 log.info("recall: recent raw_chunk bridge added %d hits", len(chunk_hits))
 
+        # 2d. 冷归档 · Kelin 216 对齐：前面几层全无命中时才开箱。
+        #     这层是 last-resort evidence，不能混进主召回权威层。
+        if (
+            self.cold_archive_search is not None
+            and not vector_hits
+            and not fts_hits
+            and not raw_hits
+            and not literal_hits
+        ):
+            cascade_trace["cold_archive_checked"] = True
+            cold_hits = self._safe_call("cold_archive", self.cold_archive_search,
+                                        query, self.cold_archive_top_k)
+            cold_hits = sorted(cold_hits, key=lambda h: h.score, reverse=True)
+            cold_hits = cold_hits[:self.cold_archive_top_k]
+            if cold_hits:
+                channel_results.append(("cold_archive", cold_hits))
+                channels_used.append("cold_archive")
+                log.info("recall: cold archive fallback added %d hits", len(cold_hits))
+
         # 3. 关系图 2 跳扩展（用 vector hits 当种子）
         if self.graph_expand is not None:
             if seed_ids is None:
-                seed_ids = [h.source_id for h in vector_hits[:3]]
+                # Kelin 216 aligns relation/time association to the warm
+                # authoritative layer. If vector is empty but curated FTS found
+                # a current memory, it can still seed the safe graph. Raw/cold
+                # evidence never seeds association.
+                curated_seed_hits = vector_hits or fts_hits
+                seed_ids = [h.source_id for h in curated_seed_hits[:3]]
             if seed_ids:
                 graph_hits = self._safe_call("graph", self.graph_expand,
                                              seed_ids, self.graph_hops)
@@ -1073,12 +1134,18 @@ def literal_raw_events_search_adapter(
     score: float = 0.55,
     max_terms: int = 16,
     max_content_chars: int = 240,
+    include_neighbors: bool = True,
+    neighbor_radius: int = 1,
 ):
-    """Independent exact/literal search over raw events.
+    """Independent exact/literal search over raw events as source-neighborhood.
 
     Unlike raw_events_search_adapter, this is not a vector-score fallback. It is
     meant for short CJK terms, proper nouns, codenames, and quoted phrases that
     should get a chance even when vector search returned a weak semantic hit.
+
+    Kelin 216 note: the literal hit is treated as a *navigation layer*. When
+    possible we include a tiny same-session +/- neighbor window so the caller
+    sees the original wording around the hit without promoting it to authority.
     """
     def call(query: str, top_k: int) -> list[RecallHit]:
         terms = literal_query_terms(query, max_terms=max_terms)
@@ -1095,17 +1162,92 @@ def literal_raw_events_search_adapter(
                 (patterns, str(recent_days), top_k),
             )
             rows = cur.fetchall()
+
+        neighbor_map: dict[int, str] = {}
+        if include_neighbors and rows:
+            with conn.cursor() as cur:
+                for r in rows:
+                    hit_id = int(r[0])
+                    session_id = r[4]
+                    if not session_id:
+                        continue
+                    cur.execute(
+                        f"SELECT id, role, content, created_at "
+                        f"FROM {table} "
+                        f"WHERE session_id = %s "
+                        f"  AND id BETWEEN %s AND %s "
+                        f"ORDER BY id ASC",
+                        (session_id, hit_id - int(neighbor_radius), hit_id + int(neighbor_radius)),
+                    )
+                    parts = []
+                    for nid, role, content, created_at in cur.fetchall():
+                        marker = "*" if int(nid) == hit_id else "-"
+                        snippet = (content or "").replace("\n", " ")[:120]
+                        parts.append(f"{marker} {role or '?'} {str(created_at)[:19]}: {snippet}")
+                    if parts:
+                        neighbor_map[hit_id] = "\n".join(parts)
         return [
             RecallHit(
                 source_id=int(r[0]),
-                title=f"[literal raw {r[1] or '?'}] {str(r[3])[:10]}",
-                content=(r[2] or "")[:max_content_chars],
+                title=f"[source neighborhood {r[1] or '?'}] {str(r[3])[:10]}",
+                content=(neighbor_map.get(int(r[0])) or (r[2] or ""))[:max_content_chars],
                 score=score,
                 channel="literal",
                 metadata={
                     "namespace": "raw_events",
                     "session_id": r[4],
                     "role": r[1],
+                    "literal_terms": terms[:5],
+                    "neighbor_radius": int(neighbor_radius) if include_neighbors else 0,
+                },
+            )
+            for r in rows
+        ]
+    return call
+
+
+def cold_archive_search_adapter(
+    conn,
+    table: str = "lmc5_cold_storage",
+    score: float = 0.35,
+    max_terms: int = 12,
+    max_content_chars: int = 220,
+):
+    """Last-resort cold archive adapter.
+
+    This mirrors Kelin 216's "front layers all failed, then open the cold box"
+    rule. It intentionally uses a low fixed score and marks hits as
+    last_resort/cold_archive so they can be inspected but never mistaken for an
+    active curated fact.
+    """
+    def call(query: str, top_k: int) -> list[RecallHit]:
+        terms = literal_query_terms(query, max_terms=max_terms) or [
+            t for t in str(query or "").split() if len(t) >= 2
+        ][:max_terms]
+        if not terms:
+            return []
+        patterns = [f"%{term}%" for term in terms]
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT id, title, content, reason, archived_at "
+                f"FROM {table} "
+                f"WHERE coalesce(content, '') ILIKE ANY(%s) "
+                f"   OR coalesce(title, '') ILIKE ANY(%s) "
+                f"ORDER BY archived_at DESC NULLS LAST LIMIT %s",
+                (patterns, patterns, top_k),
+            )
+            rows = cur.fetchall()
+        return [
+            RecallHit(
+                source_id=int(r[0]),
+                title=f"[cold archive] {r[1] or ''}".strip(),
+                content=(r[2] or "")[:max_content_chars],
+                score=score,
+                channel="cold_archive",
+                metadata={
+                    "namespace": "cold_archive",
+                    "reason": r[3],
+                    "archived_at": str(r[4]) if r[4] is not None else None,
                     "literal_terms": terms[:5],
                 },
             )

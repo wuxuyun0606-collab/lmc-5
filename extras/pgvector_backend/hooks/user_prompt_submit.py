@@ -111,6 +111,7 @@ def build_pipeline_from_env():
       - GEMINI/VOYAGE/OPENAI key → 主召回接 PgvectorStore + embedder
       - 永远开启 PG curated FTS / raw-events FTS 兜底
       - legacy SQLite / 冷仓不在主排名里；要接也应作为带标签的最后兜底
+      - 可选 LMC5_COLD_ARCHIVE_FALLBACK=1 接冷仓；只有暖层全空才开箱
       - DEEPSEEK/OPENAI key 或 VOYAGE rerank → rerank 通道
       - 永远读 perception cache 作为自发浮现通道
       - graph_expand 默认 None（需要部署方按自家 schema 写 SQL，参考 docs/HOOKS_AND_RECALL.md）
@@ -191,6 +192,11 @@ def build_pipeline_from_env():
             store, embedder
         )
 
+    enable_cold_archive = os.environ.get("LMC5_COLD_ARCHIVE_FALLBACK", "0").strip().lower()
+    cold_archive_search = None
+    if enable_cold_archive in {"1", "true", "on", "yes"}:
+        cold_archive_search = rp_module.cold_archive_search_adapter(pg)
+
     fusion_settings = recall_fusion_settings_from_env()
 
     return rp_module.RecallPipeline(
@@ -199,6 +205,7 @@ def build_pipeline_from_env():
         raw_events_search=rp_module.raw_events_search_adapter(pg),
         literal_search=literal_search,
         recent_raw_chunk_search=recent_raw_chunk_search,
+        cold_archive_search=cold_archive_search,
         graph_expand=rp_module.graph_expand_adapter(pg),
         emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,

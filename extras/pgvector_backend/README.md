@@ -141,7 +141,7 @@ last-resort evidence.
 `RecallPipeline.trace` and every hit's `metadata` expose the layer decision:
 `recall_layer`, `recall_tier`, `evidence_role`, `source_label`, channel
 `score_breakdown`, and top-level cascade gates (`fts_checked`,
-`raw_events_checked`, etc.). Keep these fields when building UI/debug output;
+`raw_events_checked`, `cold_archive_checked`, etc.). Keep these fields when building UI/debug output;
 they are the guardrail that prevents "main memory", "raw evidence", and "cold
 archive hint" from wearing the same fake mustache.
 
@@ -151,6 +151,11 @@ return a four-section `RecallResult.layers`: `main_recall` (authority),
 `fallback_archive` (last-resort raw/cold archive evidence).
 `flat` is still the default; old consumers do not need to know this feature
 exists until they grow up and ask for a map.
+
+`LMC5_COLD_ARCHIVE_FALLBACK=1` optionally wires `lmc5_cold_storage` as the cold
+box. The pipeline only opens it when PG/curated vector, curated FTS, raw-events,
+and literal/source-neighborhood hits are all empty. If it surfaces, treat it as
+evidence to inspect, not an active fact.
 
 `vector_pgvector.py` is the smallest piece and the most directly swappable.
 Begin there if you only want a faster vector backend.

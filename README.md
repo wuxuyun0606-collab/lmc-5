@@ -612,6 +612,8 @@ explicitly wires them as labeled last-resort evidence.
            │  (last resort)      │  recent 90 days
            └──────────┬──────────┘
                       │
+              no warm/raw hit? ─── yes ──→ optional cold archive fallback
+                      │
            ┌──────────▼──────────┐
            │  merge + dedup      │  ← also merges independent channels
            └──────────┬──────────┘
@@ -663,6 +665,7 @@ to enable. Without it, the pipeline uses the raw query only.
 | `recent_raw_chunk_top_k` | 1 | Max temporary raw-chunk bridge hits |
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | Hook env var: enable exact raw-events channel |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | Hook env var: enable optional recent raw_chunk bridge |
+| `LMC5_COLD_ARCHIVE_FALLBACK` | 0 | Hook env var: enable cold archive fallback; only opens when warmer layers found nothing |
 | `LMC5_RECALL_FUSION` | `minmax` | Hook env var: recall score fusion mode (`raw`, `minmax`, `rrf`) |
 | `LMC5_RECALL_RRF_K` | 60 | Hook env var: RRF smoothing constant when fusion mode is `rrf` |
 | `LMC5_RECALL_OUTPUT` | `flat` | Hook env var: `flat` legacy list output, or `layered` authority/navigation/association/fallback sections |
@@ -688,6 +691,13 @@ Layered output is opt-in. `flat` remains the default for existing consumers.
 navigation snippets), `graph_expansion` (association), and `fallback_archive`
 (last-resort raw/cold archive evidence). Neighborhood and fallback text are
 budgeted so raw logs cannot drown the curated main layer.
+
+The current layer contract follows the audited Kelin reference deployment:
+PG/pgvector curated recall is the authority layer; raw/source neighborhoods are
+navigation only; safe relation/time edges are association; raw events and cold
+archives are dusty boxes opened only as last-resort evidence. In other words:
+don’t put a street sign on the witness stand. We tested that mistake so you
+don’t have to.
 
 See [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md) for the full
 pipeline diagram and wiring examples.

@@ -127,7 +127,8 @@ curated memories.
 Every injected hit carries an explicit layer label in metadata and trace:
 `recall_layer`, `recall_tier`, `evidence_role`, `source_label`, and
 `score_breakdown`. The top-level trace also records `cascade.mode=primary_first`,
-thresholds, which fallback stages were checked, and `layers_used`. This makes
+thresholds, which fallback stages were checked, `cold_archive_policy`, and
+`layers_used`. This makes
 "why did I remember this?" auditable instead of leaving the answer to vibes,
 which, tragically, are not a database index.
 
@@ -142,6 +143,13 @@ single-list injection. Layered output has exactly four visible sections:
 3. **graph_expansion / association** — 1-2 hop Y-graph relation expansion.
 4. **fallback_archive / last_resort** — raw-events / cold-session archive fallback.
    It is evidence to inspect, not authority to obey.
+
+The reference layer contract is aligned to the audited Kelin runtime: PG/pgvector
+curated recall is the authority layer; source-neighborhood snippets are
+navigation only; safe relation/time edges are association; raw events and cold
+archives are last-resort evidence. If you swap storage engines, keep those
+roles intact. SQLite, transcript tails, and archive cards may help you find a
+door, but they do not become the courthouse record by wearing a nicer hat.
 
 Do not let these layers impersonate each other. Neighborhood snippets are street
 signs, fallback archives are dusty boxes, and neither is the courthouse record.

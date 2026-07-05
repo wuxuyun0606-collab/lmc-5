@@ -494,6 +494,8 @@ archive 不能压过 curated 主路，也不能混进主排名；除非部署方
            │  （最后一道网）       │  近 90 天
            └──────────┬──────────┘
                       │
+              暖层/原文全空? ─── 是 ──→ 可选冷归档兜底
+                      │
            ┌──────────▼──────────┐
            │  合并去重             │  ← 同时合并独立通道的结果
            └──────────┬──────────┘
@@ -535,6 +537,7 @@ archive 不能压过 curated 主路，也不能混进主排名；除非部署方
 | `recent_raw_chunk_top_k` | 1 | 临时 raw-chunk 桥最多返回几条 |
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | hook 环境变量：是否启用精确 raw-events 通道 |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | hook 环境变量：是否启用可选 recent raw_chunk 桥 |
+| `LMC5_COLD_ARCHIVE_FALLBACK` | 0 | hook 环境变量：是否启用冷归档兜底；只有暖层全空才开箱 |
 | `LMC5_RECALL_FUSION` | `minmax` | hook 环境变量：召回分数融合模式（`raw`、`minmax`、`rrf`） |
 | `LMC5_RECALL_RRF_K` | 60 | hook 环境变量：`rrf` 模式下的 RRF 平滑常数 |
 | `LMC5_RECALL_OUTPUT` | `flat` | hook 环境变量：`flat` 保持旧列表输出；`layered` 输出主召回/原文邻域/图扩展/兜底档案四层 |
@@ -554,6 +557,10 @@ raw events 是最大、最吵的池子，只有前两层都空手时才启动。
 `main_recall`（权威层）、`source_neighborhood`（短导航层）、
 `graph_expansion`（联想层）和 `fallback_archive`（兜底档案层）。
 原文邻域和兜底档案都有字数预算，不能压过 curated 主召回。
+
+当前分层契约按已核验的克霖参考部署对齐：PG/pgvector curated 召回是权威层；
+原文邻域只是导航；安全关系边和时间线是联想；raw events 和冷归档只作最后证据，
+不是 active fact。街道路牌不能上证人席——这句写在这里，是因为凌晨真的有人差点这么干。
 
 完整管线图和接线示例见 [docs/HOOKS_AND_RECALL.md](docs/HOOKS_AND_RECALL.md)。
 
