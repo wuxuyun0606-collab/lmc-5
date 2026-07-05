@@ -38,6 +38,19 @@ _SCORE_COMPONENT_BY_CHANNEL = {
     "emotion": "emotion",
     "perception": "perception",
 }
+_DEFAULT_CHANNEL_WEIGHTS = {
+    "vector": 1.0,
+    "fts": 1.0,
+    "literal": 1.0,
+    "raw_events": 0.9,
+    "raw_chunk": 0.8,
+    "graph": 0.8,
+    # emotion_resonate currently often behaves like a boolean channel. Keep
+    # its prior modest until the resonance score has real spread.
+    "emotion": 0.5,
+    "perception": 0.6,
+}
+_SCORE_FUSIONS = {"raw", "minmax", "rrf"}
 
 
 def _round_score(value: float) -> float:
@@ -224,6 +237,10 @@ class RecallPipeline:
         raw_events_floor: float = 0.30,
         final_top_k: int = 10,
         injection_budget_chars: int = 4000,
+        fusion: str = "minmax",
+        channel_weights: Optional[dict[str, float]] = None,
+        rrf_k: int = 60,
+        minmax_neutral_score: float = 0.5,
     ):
         """
         完整管线：Query Expansion → 三层检索 + 兜底 → 合并去重 → OB 评分 → 精排
@@ -267,6 +284,12 @@ class RecallPipeline:
             literal_query_max_chars: 超过这个长度不跑 literal_search，避免长 prompt
                                      对 raw_events 做无意义 ILIKE
             injection_budget_chars: 最终拼到 system prompt 的字符上限
+            fusion: 通道融合策略。raw=旧行为（直接比原始分）；minmax=每条通道
+                    内 min-max 到 [0,1] 后乘权重；rrf=Reciprocal Rank Fusion。
+                    minmax 是默认止血，rrf 供真实 trace A/B。
+            channel_weights: 通道先验权重，覆盖默认值。
+            rrf_k: RRF 平滑常数，默认 60。
+            minmax_neutral_score: minmax 遇到单条命中/全同分时的中性分。
         """
         for name, fn in (
             ("vector_search", vector_search),
@@ -310,6 +333,19 @@ class RecallPipeline:
         self.raw_events_floor = raw_events_floor
         self.final_top_k = final_top_k
         self.injection_budget_chars = injection_budget_chars
+        fusion = str(fusion or "raw").lower()
+        if fusion not in _SCORE_FUSIONS:
+            raise ValueError(
+                f"RecallPipeline: fusion must be one of {sorted(_SCORE_FUSIONS)}, "
+                f"got {fusion!r}"
+            )
+        self.fusion = fusion
+        self.channel_weights = dict(_DEFAULT_CHANNEL_WEIGHTS)
+        if channel_weights:
+            for name, weight in channel_weights.items():
+                self.channel_weights[str(name)] = float(weight)
+        self.rrf_k = int(rrf_k)
+        self.minmax_neutral_score = float(minmax_neutral_score)
 
     def _safe_call(self, name: str, fn: Callable, *args) -> list[RecallHit]:
         """每条通道都包异常——一条断了不影响其他通道"""
@@ -341,16 +377,79 @@ class RecallPipeline:
             return ("raw_chunk", int(hit.source_id))
         return ("curated", int(hit.source_id))
 
+    def _apply_score_fusion(
+        self,
+        channels: list[tuple[str, list[RecallHit]]],
+    ) -> list[tuple[str, list[RecallHit]]]:
+        """Put channel scores onto a comparable scale before cross-channel merge.
+
+        raw keeps the old behavior. minmax compares relative confidence within
+        each channel, then applies a channel prior. rrf ignores absolute scores
+        and fuses by within-channel rank. Raw channel scores stay in
+        score_breakdown; fusion diagnostics are added alongside them.
+        """
+        if self.fusion == "raw":
+            return channels
+
+        fused_channels: list[tuple[str, list[RecallHit]]] = []
+        for channel_name, hits in channels:
+            if not hits:
+                fused_channels.append((channel_name, hits))
+                continue
+            weight = self.channel_weights.get(channel_name, 1.0)
+            ranked = sorted(hits, key=lambda h: h.score, reverse=True)
+            if self.fusion == "minmax":
+                scores = [float(h.score or 0.0) for h in ranked]
+                lo = min(scores)
+                hi = max(scores)
+                span = hi - lo
+                for rank, hit in enumerate(ranked, start=1):
+                    raw = float(hit.score or 0.0)
+                    norm = (
+                        self.minmax_neutral_score
+                        if span == 0
+                        else (raw - lo) / span
+                    )
+                    weighted = norm * weight
+                    component = _score_component(channel_name, hit)
+                    breakdown = hit.metadata.setdefault("score_breakdown", {})
+                    if isinstance(breakdown, dict):
+                        breakdown[f"{component}_rank"] = rank
+                        breakdown[f"{component}_normalized"] = _round_score(norm)
+                        breakdown[f"{component}_weighted"] = _round_score(weighted)
+                    hit.metadata["score_fusion"] = "minmax"
+                    hit.score = weighted
+            elif self.fusion == "rrf":
+                for rank, hit in enumerate(ranked, start=1):
+                    rrf = 1.0 / (self.rrf_k + rank)
+                    weighted = rrf * weight
+                    component = _score_component(channel_name, hit)
+                    breakdown = hit.metadata.setdefault("score_breakdown", {})
+                    if isinstance(breakdown, dict):
+                        breakdown[f"{component}_rank"] = rank
+                        breakdown[f"{component}_rrf"] = _round_score(rrf)
+                        breakdown[f"{component}_weighted_rrf"] = _round_score(weighted)
+                    hit.metadata["score_fusion"] = "rrf"
+                    hit.score = weighted
+            fused_channels.append((channel_name, ranked))
+        return fused_channels
+
     def _merge_dedup(self, channels: list[tuple[str, list[RecallHit]]]) -> list[RecallHit]:
-        """同一 namespace+source_id 命中时合并：保留最高分 + 标注所有通道"""
+        """同一 namespace+source_id 命中时合并：raw 取最高分，融合分累加。"""
         merged: dict[tuple[str, int], RecallHit] = {}
         for channel_name, hits in channels:
             for h in hits:
                 key = self._dedup_key(h)
                 if key in merged:
                     existing = merged[key]
-                    if h.score > existing.score:
-                        existing.score = h.score
+                    if self.fusion == "raw":
+                        if h.score > existing.score:
+                            existing.score = h.score
+                    else:
+                        # Fusion scores are additive evidence. A memory found
+                        # independently by vector+graph should be rewarded, not
+                        # reduced back to max(single-channel).
+                        existing.score += h.score
                     existing.metadata.setdefault("channels", set()).add(h.channel)
                     existing.metadata["channels"].add(channel_name)
                     _merge_score_breakdown(existing, h)
@@ -550,7 +649,8 @@ class RecallPipeline:
                 channel_results.append(("perception", perc_hits))
                 channels_used.append("perception")
 
-        # 合并去重
+        # 融合 + 合并去重
+        channel_results = self._apply_score_fusion(channel_results)
         merged = self._merge_dedup(channel_results)
         channel_counts = {name: len(hits) for name, hits in channel_results}
 

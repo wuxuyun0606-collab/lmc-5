@@ -348,6 +348,140 @@ def test_recall_pipeline_explain_trace_merges_score_breakdowns():
     assert set(trace_hit["channels"]) == {"fts", "vector"}
 
 
+def test_recall_pipeline_minmax_fusion_prevents_fixed_graph_domination():
+    """Fixed graph edge strengths should not swamp vector hits without rerank."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="right", content="读书室 聊天条 挽救计划",
+                      score=0.883, channel="vector"),
+            RecallHit(source_id=2, title="near", content="聊天条 UI",
+                      score=0.84, channel="vector"),
+            RecallHit(source_id=3, title="far", content="别的读书室",
+                      score=0.80, channel="vector"),
+        ]
+
+    def fake_graph(seed_ids, hops):
+        return [
+            RecallHit(source_id=10, title="graph-1", content="工作群搭建",
+                      score=0.9, channel="graph"),
+            RecallHit(source_id=11, title="graph-2", content="SPA 架构设计",
+                      score=0.9, channel="graph"),
+            RecallHit(source_id=12, title="graph-3", content="SPA 重构决策",
+                      score=0.9, channel="graph"),
+        ]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        final_top_k=5,
+    )
+    result = pipeline.recall("读书室 聊天条 挽救计划")
+
+    assert result.hits[0].channel == "vector"
+    assert result.hits[0].source_id == 1
+    assert [h.channel for h in result.hits[:3]].count("graph") < 3
+    breakdown = result.hits[0].metadata["score_breakdown"]
+    assert breakdown["semantic"] == 0.883
+    assert breakdown["semantic_normalized"] == 1.0
+    assert breakdown["semantic_weighted"] == 1.0
+
+
+def test_recall_pipeline_minmax_fusion_keeps_emotion_boolean_channel_modest():
+    """A single emotion hit with score=1.0 should not outrank a strong vector hit."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="semantic-best", content="semantic",
+                      score=0.92, channel="vector"),
+            RecallHit(source_id=2, title="semantic-second", content="semantic",
+                      score=0.86, channel="vector"),
+        ]
+
+    def fake_emotion(q, k):
+        return [RecallHit(source_id=9, title="emotion", content="emotion",
+                          score=1.0, channel="emotion")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        emotion_resonate=fake_emotion,
+        final_top_k=3,
+    ).recall("test")
+
+    assert result.hits[0].source_id == 1
+    emotion_hit = next(h for h in result.hits if h.channel == "emotion")
+    breakdown = emotion_hit.metadata["score_breakdown"]
+    assert breakdown["emotion"] == 1.0
+    assert breakdown["emotion_normalized"] == 0.5
+    assert breakdown["emotion_weighted"] == 0.25
+
+
+def test_recall_pipeline_fusion_rewards_vector_graph_cross_validation():
+    """A vector+graph duplicate should gain additive evidence, not lose to singles."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="both", content="cross checked",
+                      score=0.90, channel="vector"),
+            RecallHit(source_id=2, title="vector-only", content="single channel",
+                      score=0.84, channel="vector"),
+        ]
+
+    def fake_graph(seed_ids, hops):
+        return [
+            RecallHit(source_id=1, title="both", content="cross checked",
+                      score=0.90, channel="graph"),
+            RecallHit(source_id=3, title="graph-only", content="single channel",
+                      score=0.90, channel="graph"),
+        ]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        final_top_k=3,
+    ).recall("cross checked")
+
+    assert result.hits[0].source_id == 1
+    assert set(result.hits[0].metadata["channels"]) == {"graph", "vector"}
+    single_scores = [h.score for h in result.hits[1:]]
+    assert all(result.hits[0].score > score for score in single_scores)
+    breakdown = result.hits[0].metadata["score_breakdown"]
+    assert breakdown["semantic_weighted"] == 1.0
+    assert breakdown["relation_weighted"] == 0.4
+    assert breakdown["final"] == result.hits[0].score
+
+
+def test_recall_pipeline_rrf_fusion_is_selectable():
+    """RRF is available for trace A/B without relying on raw score scales."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="vector", content="semantic",
+                          score=0.80, channel="vector")]
+
+    def fake_graph(seed_ids, hops):
+        return [RecallHit(source_id=2, title="graph", content="relation",
+                          score=0.90, channel="graph")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        fusion="rrf",
+        final_top_k=2,
+    ).recall("test")
+
+    assert result.hits[0].source_id == 1
+    semantic = result.hits[0].metadata["score_breakdown"]
+    assert semantic["semantic"] == 0.8
+    assert semantic["semantic_rank"] == 1
+    assert "semantic_weighted_rrf" in semantic
+    graph_hit = next(h for h in result.hits if h.channel == "graph")
+    assert graph_hit.metadata["score_breakdown"]["relation_weighted_rrf"] < semantic["semantic_weighted_rrf"]
+
+
 def test_literal_query_terms_extracts_chinese_specific_term():
     from extras.pgvector_backend.recall_pipeline import (
         literal_query_terms,
