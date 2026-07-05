@@ -27,6 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 
 PURE_MODULES = [
     "extras",
+    "extras.claude_code",
+    "extras.claude_code.refined_session_carryover",
     "extras.pgvector_backend",
     "extras.pgvector_backend.anti_hallucination",
     "extras.pgvector_backend.config",
@@ -35,6 +37,8 @@ PURE_MODULES = [
     "extras.pgvector_backend.ob_recall",
     "extras.pgvector_backend.narrative_timeline",
     "extras.pgvector_backend.night_dream",
+    "extras.pgvector_backend.nap",
+    "extras.pgvector_backend.patrol",
     "extras.pgvector_backend.perception",
     "extras.pgvector_backend.recall_pipeline",
     "extras.pgvector_backend.e_axis_scorer",
@@ -346,6 +350,296 @@ def test_recall_pipeline_explain_trace_merges_score_breakdowns():
     assert trace_hit["score_breakdown"]["semantic"] == 0.2
     assert trace_hit["score_breakdown"]["keyword"] == 0.55
     assert set(trace_hit["channels"]) == {"fts", "vector"}
+    assert trace_hit["recall_layer"] == "curated_vector"
+    assert trace_hit["evidence_role"] == "main"
+    assert result.trace["cascade"]["mode"] == "primary_first"
+    assert result.trace["cascade"]["fts_checked"] is True
+    assert result.trace["priority"].startswith("curated_vector")
+
+
+def test_recall_pipeline_labels_raw_fallback_and_side_channels():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_raw(q, k):
+        return [RecallHit(source_id=7, title="raw", content="old exact thing",
+                          score=0.4, channel="raw_events",
+                          metadata={"namespace": "raw_events"})]
+
+    def fake_literal(q, k):
+        return [RecallHit(source_id=8, title="literal", content="codename",
+                          score=0.55, channel="literal",
+                          metadata={"namespace": "raw_events"})]
+
+    result = RecallPipeline(
+        raw_events_search=fake_raw,
+        literal_search=fake_literal,
+        raw_events_floor=0.30,
+        final_top_k=2,
+    ).recall("搜一下蘸水菜")
+
+    by_layer = {hit.metadata["recall_layer"]: hit for hit in result.hits}
+    assert "raw_events_fts" in by_layer
+    assert by_layer["raw_events_fts"].metadata["evidence_role"] == "last_resort"
+    assert "literal_raw_events" in by_layer
+    assert by_layer["literal_raw_events"].metadata["evidence_role"] == "side_channel"
+    assert "raw_events_fts" in result.injection_text
+    assert result.trace["cascade"]["raw_events_checked"] is True
+    assert result.trace["cascade"]["literal_checked"] is True
+
+
+def test_recall_pipeline_layered_output_keeps_layers_separate_and_short():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="main", content="M" * 160,
+                          score=0.9, channel="vector")]
+
+    def fake_literal(q, k):
+        return [RecallHit(source_id=2, title="neighbor", content="N" * 500,
+                          score=0.55, channel="literal",
+                          metadata={"namespace": "raw_events"})]
+
+    def fake_graph(seed_ids, hops):
+        return [RecallHit(source_id=3, title="graph", content="G" * 200,
+                          score=0.7, channel="graph")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        literal_search=fake_literal,
+        graph_expand=fake_graph,
+        output_mode="layered",
+        source_neighborhood_budget_chars=300,
+        final_top_k=3,
+    ).recall("搜一下蘸水菜")
+
+    assert result.layers["mode"] == "layered"
+    assert result.layers["main_recall"]["hits"][0]["recall_layer"] == "curated_vector"
+    assert result.layers["source_neighborhood"]["hits"][0]["recall_layer"] == "literal_raw_events"
+    assert result.layers["graph_expansion"]["hits"][0]["recall_layer"] == "y_graph_expand"
+    assert result.layers["source_neighborhood"]["used_chars"] <= 160
+    assert "source_neighborhood text budget must not exceed main_recall" in result.layers["rules"][2]
+    assert "主召回 / authority" in result.injection_text
+    assert "原文邻域 / navigation" in result.injection_text
+    assert "图扩展 / association" in result.injection_text
+
+
+def test_recall_pipeline_layered_output_separates_last_resort_fallback():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="weak-main", content="main",
+                          score=0.2, channel="vector")]
+
+    def fake_raw(q, k):
+        return [RecallHit(source_id=7, title="raw-fallback", content="R" * 300,
+                          score=0.4, channel="raw_events",
+                          metadata={"namespace": "raw_events"})]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        raw_events_search=fake_raw,
+        raw_events_floor=0.30,
+        output_mode="layered",
+        final_top_k=2,
+    ).recall("obscure codename")
+
+    assert result.layers["main_recall"]["hits"][0]["recall_layer"] == "curated_vector"
+    assert result.layers["source_neighborhood"]["hits"] == []
+    assert result.layers["fallback_archive"]["hits"][0]["recall_layer"] == "raw_events_fts"
+    assert result.layers["fallback_archive"]["hits"][0]["evidence_role"] == "last_resort"
+    assert "兜底档案 / fallback" in result.injection_text
+
+
+def test_recall_pipeline_flat_output_stays_default():
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="main", content="semantic",
+                          score=0.9, channel="vector")]
+
+    result = RecallPipeline(vector_search=fake_vector).recall("test")
+
+    assert result.layers == {}
+    assert result.trace["cascade"]["output_mode"] == "flat"
+    assert "Layered recalled context" not in result.injection_text
+
+
+def test_recall_pipeline_minmax_fusion_prevents_fixed_graph_domination():
+    """Fixed graph edge strengths should not swamp vector hits without rerank."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="right", content="读书室 聊天条 挽救计划",
+                      score=0.883, channel="vector"),
+            RecallHit(source_id=2, title="near", content="聊天条 UI",
+                      score=0.84, channel="vector"),
+            RecallHit(source_id=3, title="far", content="别的读书室",
+                      score=0.80, channel="vector"),
+        ]
+
+    def fake_graph(seed_ids, hops):
+        return [
+            RecallHit(source_id=10, title="graph-1", content="工作群搭建",
+                      score=0.9, channel="graph"),
+            RecallHit(source_id=11, title="graph-2", content="SPA 架构设计",
+                      score=0.9, channel="graph"),
+            RecallHit(source_id=12, title="graph-3", content="SPA 重构决策",
+                      score=0.9, channel="graph"),
+        ]
+
+    pipeline = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        final_top_k=5,
+    )
+    result = pipeline.recall("读书室 聊天条 挽救计划")
+
+    assert result.hits[0].channel == "vector"
+    assert result.hits[0].source_id == 1
+    assert [h.channel for h in result.hits[:3]].count("graph") < 3
+    breakdown = result.hits[0].metadata["score_breakdown"]
+    assert breakdown["semantic"] == 0.883
+    assert breakdown["semantic_normalized"] == 1.0
+    assert breakdown["semantic_weighted"] == 1.0
+
+
+def test_recall_pipeline_minmax_fusion_keeps_emotion_boolean_channel_modest():
+    """A single emotion hit with score=1.0 should not outrank a strong vector hit."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="semantic-best", content="semantic",
+                      score=0.92, channel="vector"),
+            RecallHit(source_id=2, title="semantic-second", content="semantic",
+                      score=0.86, channel="vector"),
+        ]
+
+    def fake_emotion(q, k):
+        return [RecallHit(source_id=9, title="emotion", content="emotion",
+                          score=1.0, channel="emotion")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        emotion_resonate=fake_emotion,
+        final_top_k=3,
+    ).recall("test")
+
+    assert result.hits[0].source_id == 1
+    emotion_hit = next(h for h in result.hits if h.channel == "emotion")
+    breakdown = emotion_hit.metadata["score_breakdown"]
+    assert breakdown["emotion"] == 1.0
+    assert breakdown["emotion_normalized"] == 0.5
+    assert breakdown["emotion_weighted"] == 0.25
+
+
+def test_recall_pipeline_fusion_rewards_vector_graph_cross_validation():
+    """A vector+graph duplicate should gain additive evidence, not lose to singles."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="both", content="cross checked",
+                      score=0.90, channel="vector"),
+            RecallHit(source_id=2, title="vector-only", content="single channel",
+                      score=0.84, channel="vector"),
+        ]
+
+    def fake_graph(seed_ids, hops):
+        return [
+            RecallHit(source_id=1, title="both", content="cross checked",
+                      score=0.90, channel="graph"),
+            RecallHit(source_id=3, title="graph-only", content="single channel",
+                      score=0.90, channel="graph"),
+        ]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        final_top_k=3,
+    ).recall("cross checked")
+
+    assert result.hits[0].source_id == 1
+    assert set(result.hits[0].metadata["channels"]) == {"graph", "vector"}
+    single_scores = [h.score for h in result.hits[1:]]
+    assert all(result.hits[0].score > score for score in single_scores)
+    breakdown = result.hits[0].metadata["score_breakdown"]
+    assert breakdown["semantic_weighted"] == 1.0
+    assert breakdown["relation_weighted"] == 0.4
+    assert breakdown["final"] == result.hits[0].score
+
+
+def test_recall_pipeline_rrf_fusion_is_selectable():
+    """RRF is available for trace A/B without relying on raw score scales."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [RecallHit(source_id=1, title="vector", content="semantic",
+                          score=0.80, channel="vector")]
+
+    def fake_graph(seed_ids, hops):
+        return [RecallHit(source_id=2, title="graph", content="relation",
+                          score=0.90, channel="graph")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        fusion="rrf",
+        final_top_k=2,
+    ).recall("test")
+
+    assert result.hits[0].source_id == 1
+    semantic = result.hits[0].metadata["score_breakdown"]
+    assert semantic["semantic"] == 0.8
+    assert semantic["semantic_rank"] == 1
+    assert "semantic_weighted_rrf" in semantic
+    graph_hit = next(h for h in result.hits if h.channel == "graph")
+    assert graph_hit.metadata["score_breakdown"]["relation_weighted_rrf"] < semantic["semantic_weighted_rrf"]
+
+
+def test_recall_pipeline_rrf_small_scores_are_not_thresholded_away():
+    """RRF scores are tiny; downstream recall must sort/inject them, not floor them."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit
+
+    def fake_vector(q, k):
+        return [
+            RecallHit(source_id=1, title="v1", content="semantic best",
+                      score=0.90, channel="vector"),
+            RecallHit(source_id=2, title="v2", content="semantic second",
+                      score=0.80, channel="vector"),
+        ]
+
+    def fake_graph(seed_ids, hops):
+        return [RecallHit(source_id=3, title="g1", content="graph only",
+                          score=0.90, channel="graph")]
+
+    result = RecallPipeline(
+        vector_search=fake_vector,
+        graph_expand=fake_graph,
+        fusion="rrf",
+        final_top_k=3,
+    ).recall("test")
+
+    assert len(result.hits) == 3
+    assert all(0 < h.score < 0.02 for h in result.hits)
+    assert "g1" in result.injection_text
+    assert [h["source_id"] for h in result.trace["hits"]] == [1, 2, 3]
+    assert all(h["score"] > 0 for h in result.trace["hits"])
+
+
+def test_user_prompt_submit_exposes_recall_fusion_env(monkeypatch):
+    from extras.pgvector_backend.hooks.user_prompt_submit import recall_fusion_settings_from_env
+
+    monkeypatch.setenv("LMC5_RECALL_FUSION", "rrf")
+    monkeypatch.setenv("LMC5_RECALL_RRF_K", "42")
+    monkeypatch.setenv("LMC5_RECALL_OUTPUT", "layered")
+
+    assert recall_fusion_settings_from_env() == {
+        "fusion": "rrf",
+        "rrf_k": 42,
+        "output_mode": "layered",
+    }
 
 
 def test_literal_query_terms_extracts_chinese_specific_term():
@@ -490,6 +784,17 @@ def test_heartbeat_detector_pollution_migration_quarantines_not_deletes():
     assert "DELETE FROM lmc5_curated_memories" not in sql
 
 
+def test_pgvector_z_audit_schema_persists_judgements_for_dedup():
+    sql = (REPO_ROOT / "extras" / "pgvector_backend" / "schema.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "CREATE TABLE IF NOT EXISTS lmc5_z_audit" in sql
+    assert "verdict         TEXT NOT NULL" in sql
+    assert "judged_at       TIMESTAMPTZ DEFAULT NOW()" in sql
+    assert "UNIQUE (pair_key, content_hash)" in sql
+
+
 def test_heartbeat_trigger_throttles_alerts_in_memory():
     """Heartbeat hook should not nag every turn once a trigger keeps matching."""
     from extras.pgvector_backend.heartbeat_trigger import HeartbeatTrigger
@@ -551,3 +856,110 @@ def test_anti_hallucination_header_embedded_everywhere():
     # Header itself enforces the five rules
     for rule in ("不编", "真实", "不脑补", "不情绪加工", "不确定就说不确定"):
         assert rule in ANTI_HALLUCINATION_HEADER, f"missing rule: {rule}"
+
+
+def test_pgvector_nap_writes_missing_vectors_and_orphan_relations():
+    from extras.pgvector_backend.nap import run_nap
+
+    class Cursor:
+        description = []
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def execute(self, sql, params=None):
+            self.sql = sql
+            if "lmc5_vectors" in sql:
+                self.rows = [{"id": 7, "title": "T", "content": "C"}]
+            else:
+                self.rows = [{"id": 7}]
+        def fetchall(self): return self.rows
+
+    class Conn:
+        def cursor(self): return Cursor()
+
+    vectors = []
+    relations = []
+
+    result = run_nap(
+        Conn(),
+        vector_writer=lambda owner_type, owner_id, text: vectors.append((owner_type, owner_id, text)),
+        neighbor_finder=lambda memory_id, top_k: [8, memory_id],
+        relation_writer=lambda a, b, typ, strength, reason: relations.append((a, b, typ, strength, reason)),
+    )
+
+    assert result.ok
+    assert result.vectors_written == 1
+    assert vectors == [("curated", 7, "T\nC")]
+    assert result.relations_written == 1
+    assert relations == [(7, 8, "same_topic", 0.45, "nap:orphan-link")]
+
+
+def test_pgvector_patrol_dry_run_and_apply_expire_safe_relation_garbage():
+    from extras.pgvector_backend.patrol import run_patrol
+
+    class Cursor:
+        description = []
+        def __init__(self, conn):
+            self.conn = conn
+            self.rows = []
+            self.rowcount = 0
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def execute(self, sql, params=None):
+            if sql.lstrip().upper().startswith("UPDATE"):
+                self.conn.updated.append((sql, params))
+                self.rowcount = len(params[1])
+                self.rows = []
+                return
+            if "curated_missing_vectors" in sql or "NOT EXISTS" in sql and "lmc5_vectors" in sql:
+                self.rows = [{"n": 2}]
+            elif "relation_type IN ('contradiction', 'contradicts')" in sql and "count(*)" in sql:
+                self.rows = [{"n": 1}]
+            elif "relation_type IN ('contradiction', 'contradicts')" in sql and "SELECT r.id" in sql:
+                self.rows = [{"id": 31}]
+            elif "LEFT JOIN lmc5_curated_memories" in sql and "count(*)" in sql:
+                self.rows = [{"n": 1}]
+            elif "row_number() OVER" in sql:
+                self.rows = [{"id": 11}, {"id": 12}]
+            elif "LEFT JOIN lmc5_curated_memories" in sql and "SELECT r.id" in sql:
+                self.rows = [{"id": 21}]
+            elif "z_audit" in sql:
+                self.rows = [{"n": 3}]
+            else:
+                self.rows = [{"n": 5}]
+        def fetchall(self): return self.rows
+
+    class Conn:
+        def __init__(self): self.updated = []; self.commits = 0
+        def cursor(self): return Cursor(self)
+        def commit(self): self.commits += 1
+
+    conn = Conn()
+    dry = run_patrol(conn, apply=False)
+    assert dry.duplicate_relations_expired == 0
+    assert any(f.check == "duplicate_relations" for f in dry.findings)
+    assert not conn.updated
+
+    applied = run_patrol(conn, apply=True, health_reviewer=lambda prompt: "health ok")
+    assert applied.duplicate_relations_expired == 2
+    assert applied.orphan_relations_expired == 1
+    assert applied.dead_contradiction_relations_expired == 1
+    assert applied.health_review == "health ok"
+    assert any(f.check == "dead_contradiction_relation_ids" for f in applied.findings)
+    assert len(conn.updated) == 3
+    assert conn.commits == 3
+
+
+def test_dream_runner_runs_nap_between_consolidate_and_hippocampus():
+    from extras.pgvector_backend.dream_runner import DreamRunner
+
+    calls = []
+    runner = DreamRunner(
+        consolidate=lambda: calls.append("consolidate"),
+        nap=lambda: calls.append("nap"),
+        hippocampus=lambda: calls.append("hippocampus"),
+    )
+
+    result = runner.run()
+
+    assert calls[:3] == ["consolidate", "nap", "hippocampus"]
+    assert [step.name for step in result.steps[:3]] == ["consolidate", "nap", "hippocampus"]

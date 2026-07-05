@@ -6,6 +6,8 @@ Public surface:
   NarrativeTimeline       narrative_timeline — weekly / monthly reflection
   EAxisScorer             e_axis_scorer    — provider-agnostic emotional scorer
   DreamRunner/Schedule    dream_runner     — nightly 04:00 orchestration
+  Nap                     nap              — session-switch lightweight maintenance
+  Patrol                  patrol           — nightly structural cleanup + health
   RecallPipeline          recall_pipeline  — multi-channel recall
   Perception              perception       — spontaneous-recall scheduler
   LMC5Config              config           — all tunable knobs in one dataclass

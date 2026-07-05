@@ -80,12 +80,37 @@ def detect_user_emotion(text: str) -> tuple[float, float] | None:
 
 # === Hook 入口 ============================================================
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def recall_fusion_settings_from_env() -> dict:
+    """Read optional recall score-fusion knobs from environment.
+
+    LMC5_RECALL_FUSION accepts raw/minmax/rrf. RecallPipeline validates the
+    value so deployment mistakes fail visibly during hook build rather than
+    silently falling back to a surprising ranking mode.
+    """
+    return {
+        "fusion": os.environ.get("LMC5_RECALL_FUSION", "minmax"),
+        "rrf_k": _env_int("LMC5_RECALL_RRF_K", 60),
+        # flat keeps legacy consumers stable. Set layered only when the caller
+        # knows how to display/use the separated authority/navigation/graph
+        # sections.
+        "output_mode": os.environ.get("LMC5_RECALL_OUTPUT", "flat"),
+    }
+
 def build_pipeline_from_env():
     """从环境变量构造 RecallPipeline。
 
-    自动按存在的环境变量装配通道：
-      - GEMINI/VOYAGE/OPENAI key → 向量通道接 PgvectorStore + embedder
-      - 永远开启 FTS 兜底
+    自动按存在的环境变量装配通道（PG 优先）：
+      - GEMINI/VOYAGE/OPENAI key → 主召回接 PgvectorStore + embedder
+      - 永远开启 PG curated FTS / raw-events FTS 兜底
+      - legacy SQLite / 冷仓不在主排名里；要接也应作为带标签的最后兜底
       - DEEPSEEK/OPENAI key 或 VOYAGE rerank → rerank 通道
       - 永远读 perception cache 作为自发浮现通道
       - graph_expand 默认 None（需要部署方按自家 schema 写 SQL，参考 docs/HOOKS_AND_RECALL.md）
@@ -166,6 +191,8 @@ def build_pipeline_from_env():
             store, embedder
         )
 
+    fusion_settings = recall_fusion_settings_from_env()
+
     return rp_module.RecallPipeline(
         vector_search=vector_search,
         fts_search=rp_module.fts_search_adapter(pg),
@@ -176,6 +203,7 @@ def build_pipeline_from_env():
         emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,
         rerank=rerank,
+        **fusion_settings,
     )
 
 

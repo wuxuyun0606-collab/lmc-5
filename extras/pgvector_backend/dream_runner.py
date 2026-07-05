@@ -2,7 +2,7 @@
 
 每晚跑一次，把白天积累的原始对话变成结构化记忆：
 
-    consolidate → hippocampus (incl. Y relation build) → heartbeat_detector
+    consolidate → nap → hippocampus (incl. Y relation build) → heartbeat_detector
         → e_axis_backfill → timeline_sweep(each X-line)
         → narrative_weekly → narrative_monthly (每月初) → z_audit → patrol
 
@@ -30,6 +30,7 @@
     runner = DreamRunner(
         consolidate=my_consolidate_fn,
         hippocampus=my_hippocampus_fn,
+        nap=my_nap_fn,                      # light missing-vector/orphan-edge pass
         heartbeat_detect=my_heartbeat_fn,  # detector candidates only; no curated direct insert
         timeline_sweep=my_thread_cleanup_fn,
         timeline_threads=["safety", "engineering", "frontend", "other"],
@@ -64,6 +65,18 @@ from typing import Any, Callable, Optional, Sequence
 log = logging.getLogger("lmc5.dream_runner")
 
 
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return value.to_dict()
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    return value
+
+
 @dataclass
 class StepResult:
     """单步结果"""
@@ -72,6 +85,15 @@ class StepResult:
     duration_s: float = 0
     output: Any = None
     error: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "duration_s": round(float(self.duration_s or 0), 3),
+            "output": _jsonable(self.output),
+            "error": self.error,
+        }
 
 
 @dataclass
@@ -98,6 +120,23 @@ class DreamResult:
                 line += f" — {s.error}"
             lines.append(line)
         return "\n".join(lines)
+
+    @property
+    def ok(self) -> bool:
+        return not any(step.status == "error" for step in self.steps)
+
+    def to_dict(self) -> dict[str, Any]:
+        counts: dict[str, int] = {}
+        for step in self.steps:
+            counts[step.status] = counts.get(step.status, 0) + 1
+        return {
+            "ok": self.ok,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "total_duration_s": round(float(self.total_duration_s or 0), 3),
+            "step_counts": counts,
+            "steps": [step.to_dict() for step in self.steps],
+        }
 
 
 @dataclass(frozen=True)
@@ -157,6 +196,14 @@ class TimelineSweepResult:
     output: Any = None
     error: str = ""
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "thread": self.thread,
+            "status": self.status,
+            "output": self.output,
+            "error": self.error,
+        }
+
 
 class DreamRunner:
     """做梦管线 · 把夜间所有步骤串成一条线
@@ -166,6 +213,8 @@ class DreamRunner:
     Args:
         consolidate:        () -> Any   原始事件 → chunks
         hippocampus:        () -> Any   chunks → 候选记忆（dry-run 或 apply）
+        nap:                () -> Any   session-switch/lightweight maintenance: missing vectors
+                               and orphan relation links.
         heartbeat_detect:   () -> Any   chunks → detector candidates only. It must not write
                                raw heartbeat_detector output directly to curated memories.
         timeline_sweep:     (thread) -> Any 逐条 X 线整理/反思/清理
@@ -179,6 +228,7 @@ class DreamRunner:
 
     STEP_ORDER = [
         "consolidate",
+        "nap",
         "hippocampus",
         "heartbeat_detect",
         "e_axis_backfill",
@@ -192,6 +242,7 @@ class DreamRunner:
     def __init__(
         self,
         consolidate: Optional[Callable[[], Any]] = None,
+        nap: Optional[Callable[[], Any]] = None,
         hippocampus: Optional[Callable[[], Any]] = None,
         heartbeat_detect: Optional[Callable[[], Any]] = None,
         timeline_sweep: Optional[Callable[[str], Any]] = None,
@@ -206,6 +257,7 @@ class DreamRunner:
     ):
         for name, fn in [
             ("consolidate", consolidate),
+            ("nap", nap),
             ("hippocampus", hippocampus),
             ("heartbeat_detect", heartbeat_detect),
             ("timeline_sweep", timeline_sweep),
@@ -237,6 +289,7 @@ class DreamRunner:
 
         self._steps = {
             "consolidate": consolidate,
+            "nap": nap,
             "hippocampus": hippocampus,
             "heartbeat_detect": heartbeat_detect,
             "timeline_sweep": timeline_sweep,

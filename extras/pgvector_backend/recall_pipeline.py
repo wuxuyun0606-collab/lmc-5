@@ -3,10 +3,10 @@
 完整管线：
 
   0. Query Expansion（可选 · DeepSeek/任意 LLM 扩展 2-4 个搜索角度）
-  1. 三层级联检索：
-     ├── Stage 1: pgvector 语义召回（主路 · halfvec ANN）
-     ├── Stage 2: curated FTS 全文兜底（向量 top_score < 0.45 时启动）
-     └── Stage 3: raw events FTS 兜底（向量 top_score < 0.30 时启动）
+  1. 主存储优先三层级联检索（PG/SQLite/自定义后端各自接线）：
+     ├── Stage 1: curated 语义召回（主路 · vector/embedding/本地相似度均可）
+     ├── Stage 2: curated keyword/FTS 全文兜底（语义 top_score < 0.45 时启动）
+     └── Stage 3: raw events / 原文日志最后兜底（top_score < 0.30 时启动）
   2. 五条独立并行通道：
      ├── 字面精确检索（短查询/中文专名/带引号查询，不被 vector 分数门控）
      ├── 最近 raw_chunk 急救桥（可选 · 极小额度，补 SessionEnd→夜间精炼空窗）
@@ -38,6 +38,73 @@ _SCORE_COMPONENT_BY_CHANNEL = {
     "emotion": "emotion",
     "perception": "perception",
 }
+_DEFAULT_CHANNEL_WEIGHTS = {
+    "vector": 1.0,
+    "fts": 1.0,
+    "literal": 1.0,
+    "raw_events": 0.9,
+    "raw_chunk": 0.8,
+    "graph": 0.8,
+    # emotion_resonate currently often behaves like a boolean channel. Keep
+    # its prior modest until the resonance score has real spread.
+    "emotion": 0.5,
+    "perception": 0.6,
+}
+_SCORE_FUSIONS = {"raw", "minmax", "rrf"}
+_RECALL_LAYER_BY_CHANNEL = {
+    # Main storage-first cascade. PG is one implementation; SQLite/custom
+    # backends should keep the same evidence roles while swapping adapters.
+    "vector": {
+        "recall_layer": "curated_vector",
+        "recall_tier": 1,
+        "evidence_role": "main",
+        "source_label": "curated / vector",
+    },
+    "fts": {
+        "recall_layer": "curated_fts",
+        "recall_tier": 2,
+        "evidence_role": "fallback",
+        "source_label": "curated / keyword-FTS",
+    },
+    "raw_events": {
+        "recall_layer": "raw_events_fts",
+        "recall_tier": 3,
+        "evidence_role": "last_resort",
+        "source_label": "raw-events journal / FTS",
+    },
+    # Gated side channels. These may help, but they do not replace the
+    # curated main path and should stay labeled in traces/injection text.
+    "literal": {
+        "recall_layer": "literal_raw_events",
+        "recall_tier": 30,
+        "evidence_role": "side_channel",
+        "source_label": "literal raw-events",
+    },
+    "raw_chunk": {
+        "recall_layer": "recent_raw_chunk_bridge",
+        "recall_tier": 31,
+        "evidence_role": "bridge",
+        "source_label": "recent raw-chunk bridge",
+    },
+    "graph": {
+        "recall_layer": "y_graph_expand",
+        "recall_tier": 40,
+        "evidence_role": "side_channel",
+        "source_label": "Y graph relation expansion",
+    },
+    "emotion": {
+        "recall_layer": "emotion_resonance",
+        "recall_tier": 41,
+        "evidence_role": "side_channel",
+        "source_label": "Russell emotion resonance",
+    },
+    "perception": {
+        "recall_layer": "spontaneous_surface",
+        "recall_tier": 42,
+        "evidence_role": "side_channel",
+        "source_label": "spontaneous recall surface",
+    },
+}
 
 
 def _round_score(value: float) -> float:
@@ -58,6 +125,14 @@ def _annotate_score_breakdown(channel_name: str, hit: "RecallHit") -> None:
         hit.metadata["score_breakdown"] = breakdown
     component = _score_component(channel_name, hit)
     breakdown.setdefault(component, _round_score(hit.score))
+
+
+def _annotate_recall_layer(channel_name: str, hit: "RecallHit") -> None:
+    layer = _RECALL_LAYER_BY_CHANNEL.get(hit.channel) or _RECALL_LAYER_BY_CHANNEL.get(channel_name)
+    if not layer:
+        return
+    for key, value in layer.items():
+        hit.metadata.setdefault(key, value)
 
 
 def _merge_score_breakdown(target: "RecallHit", source: "RecallHit") -> None:
@@ -189,6 +264,7 @@ class RecallResult:
     injection_text: str
     channel_counts: dict[str, int] = field(default_factory=dict)
     trace: dict = field(default_factory=dict)
+    layers: dict[str, Any] = field(default_factory=dict)
 
 
 class RecallPipeline:
@@ -224,6 +300,13 @@ class RecallPipeline:
         raw_events_floor: float = 0.30,
         final_top_k: int = 10,
         injection_budget_chars: int = 4000,
+        fusion: str = "minmax",
+        channel_weights: Optional[dict[str, float]] = None,
+        rrf_k: int = 60,
+        minmax_neutral_score: float = 0.5,
+        output_mode: str = "flat",
+        source_neighborhood_budget_chars: int = 600,
+        fallback_archive_budget_chars: int = 360,
     ):
         """
         完整管线：Query Expansion → 三层检索 + 兜底 → 合并去重 → OB 评分 → 精排
@@ -267,6 +350,15 @@ class RecallPipeline:
             literal_query_max_chars: 超过这个长度不跑 literal_search，避免长 prompt
                                      对 raw_events 做无意义 ILIKE
             injection_budget_chars: 最终拼到 system prompt 的字符上限
+            fusion: 通道融合策略。raw=旧行为（直接比原始分）；minmax=每条通道
+                    内 min-max 到 [0,1] 后乘权重；rrf=Reciprocal Rank Fusion。
+                    minmax 是默认止血，rrf 供真实 trace A/B。
+            channel_weights: 通道先验权重，覆盖默认值。
+            rrf_k: RRF 平滑常数，默认 60。
+            minmax_neutral_score: minmax 遇到单条命中/全同分时的中性分。
+            output_mode: flat=旧输出；layered=额外生成按证据角色分开的召回结构和分层注入文本。
+            source_neighborhood_budget_chars: layered 模式下原文邻域层的字符预算。
+            fallback_archive_budget_chars: layered 模式下兜底档案层的字符预算。
         """
         for name, fn in (
             ("vector_search", vector_search),
@@ -310,6 +402,25 @@ class RecallPipeline:
         self.raw_events_floor = raw_events_floor
         self.final_top_k = final_top_k
         self.injection_budget_chars = injection_budget_chars
+        fusion = str(fusion or "raw").lower()
+        if fusion not in _SCORE_FUSIONS:
+            raise ValueError(
+                f"RecallPipeline: fusion must be one of {sorted(_SCORE_FUSIONS)}, "
+                f"got {fusion!r}"
+            )
+        self.fusion = fusion
+        self.channel_weights = dict(_DEFAULT_CHANNEL_WEIGHTS)
+        if channel_weights:
+            for name, weight in channel_weights.items():
+                self.channel_weights[str(name)] = float(weight)
+        self.rrf_k = int(rrf_k)
+        self.minmax_neutral_score = float(minmax_neutral_score)
+        output_mode = str(output_mode or "flat").lower()
+        if output_mode not in {"flat", "layered"}:
+            raise ValueError("RecallPipeline: output_mode must be 'flat' or 'layered'")
+        self.output_mode = output_mode
+        self.source_neighborhood_budget_chars = int(source_neighborhood_budget_chars)
+        self.fallback_archive_budget_chars = int(fallback_archive_budget_chars)
 
     def _safe_call(self, name: str, fn: Callable, *args) -> list[RecallHit]:
         """每条通道都包异常——一条断了不影响其他通道"""
@@ -320,6 +431,7 @@ class RecallPipeline:
             hits = [h for h in result if isinstance(h, RecallHit)]
             for hit in hits:
                 _annotate_score_breakdown(name, hit)
+                _annotate_recall_layer(name, hit)
             return hits
         except Exception as e:
             log.warning("recall channel '%s' failed: %s", name, e)
@@ -341,16 +453,79 @@ class RecallPipeline:
             return ("raw_chunk", int(hit.source_id))
         return ("curated", int(hit.source_id))
 
+    def _apply_score_fusion(
+        self,
+        channels: list[tuple[str, list[RecallHit]]],
+    ) -> list[tuple[str, list[RecallHit]]]:
+        """Put channel scores onto a comparable scale before cross-channel merge.
+
+        raw keeps the old behavior. minmax compares relative confidence within
+        each channel, then applies a channel prior. rrf ignores absolute scores
+        and fuses by within-channel rank. Raw channel scores stay in
+        score_breakdown; fusion diagnostics are added alongside them.
+        """
+        if self.fusion == "raw":
+            return channels
+
+        fused_channels: list[tuple[str, list[RecallHit]]] = []
+        for channel_name, hits in channels:
+            if not hits:
+                fused_channels.append((channel_name, hits))
+                continue
+            weight = self.channel_weights.get(channel_name, 1.0)
+            ranked = sorted(hits, key=lambda h: h.score, reverse=True)
+            if self.fusion == "minmax":
+                scores = [float(h.score or 0.0) for h in ranked]
+                lo = min(scores)
+                hi = max(scores)
+                span = hi - lo
+                for rank, hit in enumerate(ranked, start=1):
+                    raw = float(hit.score or 0.0)
+                    norm = (
+                        self.minmax_neutral_score
+                        if span == 0
+                        else (raw - lo) / span
+                    )
+                    weighted = norm * weight
+                    component = _score_component(channel_name, hit)
+                    breakdown = hit.metadata.setdefault("score_breakdown", {})
+                    if isinstance(breakdown, dict):
+                        breakdown[f"{component}_rank"] = rank
+                        breakdown[f"{component}_normalized"] = _round_score(norm)
+                        breakdown[f"{component}_weighted"] = _round_score(weighted)
+                    hit.metadata["score_fusion"] = "minmax"
+                    hit.score = weighted
+            elif self.fusion == "rrf":
+                for rank, hit in enumerate(ranked, start=1):
+                    rrf = 1.0 / (self.rrf_k + rank)
+                    weighted = rrf * weight
+                    component = _score_component(channel_name, hit)
+                    breakdown = hit.metadata.setdefault("score_breakdown", {})
+                    if isinstance(breakdown, dict):
+                        breakdown[f"{component}_rank"] = rank
+                        breakdown[f"{component}_rrf"] = _round_score(rrf)
+                        breakdown[f"{component}_weighted_rrf"] = _round_score(weighted)
+                    hit.metadata["score_fusion"] = "rrf"
+                    hit.score = weighted
+            fused_channels.append((channel_name, ranked))
+        return fused_channels
+
     def _merge_dedup(self, channels: list[tuple[str, list[RecallHit]]]) -> list[RecallHit]:
-        """同一 namespace+source_id 命中时合并：保留最高分 + 标注所有通道"""
+        """同一 namespace+source_id 命中时合并：raw 取最高分，融合分累加。"""
         merged: dict[tuple[str, int], RecallHit] = {}
         for channel_name, hits in channels:
             for h in hits:
                 key = self._dedup_key(h)
                 if key in merged:
                     existing = merged[key]
-                    if h.score > existing.score:
-                        existing.score = h.score
+                    if self.fusion == "raw":
+                        if h.score > existing.score:
+                            existing.score = h.score
+                    else:
+                        # Fusion scores are additive evidence. A memory found
+                        # independently by vector+graph should be rewarded, not
+                        # reduced back to max(single-channel).
+                        existing.score += h.score
                     existing.metadata.setdefault("channels", set()).add(h.channel)
                     existing.metadata["channels"].add(channel_name)
                     _merge_score_breakdown(existing, h)
@@ -372,12 +547,176 @@ class RecallPipeline:
         for h in hits:
             channel_tags = h.metadata.get("channels", [h.channel])
             tag_str = ",".join(channel_tags) if channel_tags else h.channel
-            line = f"- [{tag_str} score={h.score:.2f}] {h.title}: {h.content[:200]}"
+            layer = h.metadata.get("recall_layer") or h.channel
+            role = h.metadata.get("evidence_role") or "evidence"
+            line = f"- [{layer} {role}; {tag_str} score={h.score:.2f}] {h.title}: {h.content[:200]}"
             if used + len(line) + 1 > self.injection_budget_chars:
                 lines.append("... (truncated by injection_budget_chars)")
                 break
             lines.append(line)
             used += len(line) + 1
+        return "\n".join(lines)
+
+    def _hit_to_layer_item(self, hit: RecallHit, *, content_limit: int) -> dict[str, Any]:
+        return {
+            "rank": hit.metadata.get("rank"),
+            "source_id": hit.source_id,
+            "title": hit.title[:80],
+            "content": (hit.content or "")[:content_limit],
+            "score": _round_score(hit.score),
+            "channel": hit.channel,
+            "channels": hit.metadata.get("channels", [hit.channel]),
+            "recall_layer": hit.metadata.get("recall_layer") or hit.channel,
+            "recall_tier": hit.metadata.get("recall_tier"),
+            "evidence_role": hit.metadata.get("evidence_role"),
+            "source_label": hit.metadata.get("source_label"),
+            "score_breakdown": hit.metadata.get("score_breakdown", {}),
+        }
+
+    def _build_layered_output(self, hits: list[RecallHit]) -> dict[str, Any]:
+        """Build the optional four-layer recall output.
+
+        Flat output stays the default for backwards compatibility. Layered mode
+        keeps authority, navigation, association, and fallback evidence visibly
+        separate. Storage backends are swappable; the layer contract is about
+        evidence role, not whether the rows came from PG, SQLite, or a custom
+        adapter.
+        """
+        layers: dict[str, Any] = {
+            "mode": "layered",
+            "rules": [
+                "layers must not impersonate each other",
+                "source_neighborhood is short navigation, not authority",
+                "source_neighborhood text budget must not exceed main_recall text budget",
+                "fallback_archive is last-resort evidence, not authority",
+            ],
+            "main_recall": {
+                "label": "authority",
+                "description": "Primary curated vector/keyword recall and curated side surfaces.",
+                "hits": [],
+            },
+            "source_neighborhood": {
+                "label": "navigation",
+                "description": "Short literal/raw-chunk navigation hints around matched evidence.",
+                "budget_chars": self.source_neighborhood_budget_chars,
+                "hits": [],
+            },
+            "graph_expansion": {
+                "label": "association",
+                "description": "Y-graph 1-2 hop relation expansion.",
+                "hits": [],
+            },
+            "fallback_archive": {
+                "label": "last_resort",
+                "description": "Raw-events / cold-session archive fallback, kept out of authority ranking.",
+                "budget_chars": self.fallback_archive_budget_chars,
+                "hits": [],
+            },
+        }
+
+        main_hits: list[RecallHit] = []
+        neighborhood_hits: list[RecallHit] = []
+        graph_hits: list[RecallHit] = []
+        fallback_hits: list[RecallHit] = []
+        for hit in hits:
+            namespace = str(hit.metadata.get("namespace", "")).lower()
+            evidence_role = str(hit.metadata.get("evidence_role", "")).lower()
+            recall_layer = str(hit.metadata.get("recall_layer", "")).lower()
+            if (
+                evidence_role == "last_resort"
+                or hit.channel == "raw_events"
+                or recall_layer in {"raw_events_fts", "cold_archive", "session_archive"}
+                or "cold" in namespace
+                or "archive" in namespace
+            ):
+                fallback_hits.append(hit)
+            elif hit.channel == "graph":
+                graph_hits.append(hit)
+            elif hit.channel in {"literal", "raw_chunk"}:
+                neighborhood_hits.append(hit)
+            else:
+                main_hits.append(hit)
+
+        main_budget = sum(min(len(h.content or ""), 220) for h in main_hits)
+        if main_hits:
+            neighborhood_budget = min(
+                self.source_neighborhood_budget_chars,
+                max(80, main_budget),
+            )
+        else:
+            neighborhood_budget = min(self.source_neighborhood_budget_chars, 240)
+        layers["source_neighborhood"]["budget_chars"] = neighborhood_budget
+
+        layers["main_recall"]["hits"] = [
+            self._hit_to_layer_item(hit, content_limit=220)
+            for hit in main_hits
+        ]
+        layers["graph_expansion"]["hits"] = [
+            self._hit_to_layer_item(hit, content_limit=180)
+            for hit in graph_hits
+        ]
+
+        used = 0
+        neighborhood_items: list[dict[str, Any]] = []
+        for hit in neighborhood_hits:
+            remaining = neighborhood_budget - used
+            if remaining <= 0:
+                break
+            limit = min(120, remaining)
+            item = self._hit_to_layer_item(hit, content_limit=limit)
+            used += len(item["content"])
+            neighborhood_items.append(item)
+        layers["source_neighborhood"]["hits"] = neighborhood_items
+        layers["source_neighborhood"]["used_chars"] = used
+
+        fallback_budget = min(
+            self.fallback_archive_budget_chars,
+            max(80, main_budget or 240),
+        )
+        layers["fallback_archive"]["budget_chars"] = fallback_budget
+        used = 0
+        fallback_items: list[dict[str, Any]] = []
+        for hit in fallback_hits:
+            remaining = fallback_budget - used
+            if remaining <= 0:
+                break
+            limit = min(140, remaining)
+            item = self._hit_to_layer_item(hit, content_limit=limit)
+            used += len(item["content"])
+            fallback_items.append(item)
+        layers["fallback_archive"]["hits"] = fallback_items
+        layers["fallback_archive"]["used_chars"] = used
+        return layers
+
+    def _build_layered_injection_text(self, layers: dict[str, Any]) -> str:
+        lines = ["[Layered recalled context]"]
+        sections = [
+            ("main_recall", "主召回 / authority"),
+            ("source_neighborhood", "原文邻域 / navigation"),
+            ("graph_expansion", "图扩展 / association"),
+            ("fallback_archive", "兜底档案 / fallback"),
+        ]
+        used = len(lines[0])
+        for key, title in sections:
+            layer = layers.get(key) or {}
+            hits = layer.get("hits") or []
+            if not hits:
+                continue
+            header = f"\n## {title}"
+            if used + len(header) > self.injection_budget_chars:
+                break
+            lines.append(header)
+            used += len(header)
+            for item in hits:
+                line = (
+                    f"- [{item.get('recall_layer')} {item.get('evidence_role')} "
+                    f"score={item.get('score'):.2f}] {item.get('title')}: {item.get('content')}"
+                )
+                if used + len(line) + 1 > self.injection_budget_chars:
+                    lines.append("... (truncated by injection_budget_chars)")
+                    return "\n".join(lines)
+                lines.append(line)
+                used += len(line) + 1
         return "\n".join(lines)
 
     def _build_trace(
@@ -387,13 +726,18 @@ class RecallPipeline:
         channels_used: list[str],
         channel_counts: dict[str, int],
         hits: list[RecallHit],
+        cascade_trace: dict[str, Any],
     ) -> dict:
         """Build a compact explain trace without copying recalled content."""
         trace_hits = []
+        layers_used: list[str] = []
         for rank, hit in enumerate(hits, start=1):
             breakdown = hit.metadata.get("score_breakdown", {})
             if not isinstance(breakdown, dict):
                 breakdown = {}
+            layer = str(hit.metadata.get("recall_layer") or hit.channel)
+            if layer not in layers_used:
+                layers_used.append(layer)
             trace_hits.append({
                 "rank": rank,
                 "namespace": self._dedup_key(hit)[0],
@@ -402,12 +746,19 @@ class RecallPipeline:
                 "score": _round_score(hit.score),
                 "score_breakdown": breakdown,
                 "channels": hit.metadata.get("channels", [hit.channel]),
+                "recall_layer": layer,
+                "recall_tier": hit.metadata.get("recall_tier"),
+                "evidence_role": hit.metadata.get("evidence_role"),
+                "source_label": hit.metadata.get("source_label"),
             })
         return {
             "query_preview": str(query or "")[:160],
             "expanded_queries": [str(q)[:160] for q in queries],
             "channels_used": channels_used,
             "channel_counts": channel_counts,
+            "layers_used": layers_used,
+            "priority": "curated_vector -> curated_fts -> raw_events_fts; side channels stay labeled",
+            "cascade": cascade_trace,
             "hits": trace_hits,
         }
 
@@ -425,6 +776,21 @@ class RecallPipeline:
         log = logging.getLogger("lmc5.recall_pipeline")
         channel_results: list[tuple[str, list[RecallHit]]] = []
         channels_used: list[str] = []
+        cascade_trace: dict[str, Any] = {
+            "mode": "primary_first",
+            "stages": [
+                "curated_vector",
+                "curated_fts",
+                "raw_events_fts",
+            ],
+            "fts_floor": self.fts_floor,
+            "raw_events_floor": self.raw_events_floor,
+            "top_vector_score": 0.0,
+            "fts_checked": False,
+            "raw_events_checked": False,
+            "literal_checked": False,
+            "recent_raw_chunk_checked": False,
+        }
 
         # 0. Query Expansion（可选 · LLM 扩展多角度搜索词）
         queries = [query]
@@ -467,6 +833,7 @@ class RecallPipeline:
             self.literal_search is not None
             and should_run_literal_search(query, self.literal_query_max_chars)
         ):
+            cascade_trace["literal_checked"] = True
             hits = self._safe_call("literal", self.literal_search,
                                    query, self.literal_top_k)
             literal_hits = sorted(hits, key=lambda h: h.score, reverse=True)
@@ -478,7 +845,9 @@ class RecallPipeline:
 
         # 2. FTS 兜底 1 · curated_memories（向量分都低时才走，避免空回）
         top_vec_score = max((h.score for h in vector_hits), default=0.0)
+        cascade_trace["top_vector_score"] = _round_score(top_vec_score)
         if self.fts_search is not None and top_vec_score < self.fts_floor:
+            cascade_trace["fts_checked"] = True
             fts_merged: dict[int, RecallHit] = {}
             for q in queries:
                 hits = self._safe_call("fts", self.fts_search, q, self.fts_top_k)
@@ -496,6 +865,7 @@ class RecallPipeline:
         # 2b. FTS 兜底 2 · raw events journal（更严苛的阈值——只有真正捞不到时才查
         #     原始对话日志，因为这层数据量大、噪声多）
         if self.raw_events_search is not None and top_vec_score < self.raw_events_floor:
+            cascade_trace["raw_events_checked"] = True
             raw_merged: dict[int, RecallHit] = {}
             for q in queries:
                 hits = self._safe_call("raw_events", self.raw_events_search,
@@ -514,6 +884,7 @@ class RecallPipeline:
         # 2c. 最近 session raw_chunk 急救桥 · 可选、极小额度。
         #     这不是长期记忆，只补 SessionEnd → 夜间 hippocampus 之间的短空窗。
         if self.recent_raw_chunk_search is not None:
+            cascade_trace["recent_raw_chunk_checked"] = True
             chunk_hits = self._safe_call("raw_chunk", self.recent_raw_chunk_search,
                                          query, self.recent_raw_chunk_top_k)
             chunk_hits = sorted(chunk_hits, key=lambda h: h.score, reverse=True)
@@ -550,7 +921,8 @@ class RecallPipeline:
                 channel_results.append(("perception", perc_hits))
                 channels_used.append("perception")
 
-        # 合并去重
+        # 融合 + 合并去重
+        channel_results = self._apply_score_fusion(channel_results)
         merged = self._merge_dedup(channel_results)
         channel_counts = {name: len(hits) for name, hits in channel_results}
 
@@ -573,14 +945,22 @@ class RecallPipeline:
             hit.metadata["injected"] = True
             hit.metadata["rank"] = rank
 
-        injection_text = self._build_injection_text(merged)
-        trace = self._build_trace(query, queries, channels_used, channel_counts, merged)
+        layers = self._build_layered_output(merged) if self.output_mode == "layered" else {}
+        injection_text = (
+            self._build_layered_injection_text(layers)
+            if self.output_mode == "layered"
+            else self._build_injection_text(merged)
+        )
+        cascade_trace["channels_used"] = list(channels_used)
+        cascade_trace["output_mode"] = self.output_mode
+        trace = self._build_trace(query, queries, channels_used, channel_counts, merged, cascade_trace)
         return RecallResult(
             hits=merged,
             channels_used=channels_used,
             injection_text=injection_text,
             channel_counts=channel_counts,
             trace=trace,
+            layers=layers,
         )
 
 

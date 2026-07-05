@@ -86,6 +86,13 @@ def test_dream_runner_sweeps_every_configured_timeline_and_continues_after_error
     assert [item.status for item in sweep_results] == ["ok", "ok", "error"]
     assert sweep_results[2].error == "frontend cleanup failed"
 
+    payload = result.to_dict()
+    assert payload["ok"] is False
+    assert payload["step_counts"]["error"] == 1
+    sweep_payload = next(step for step in payload["steps"] if step["name"] == "timeline_sweep")
+    assert sweep_payload["output"][2]["thread"] == "frontend"
+    assert sweep_payload["output"][2]["status"] == "error"
+
 
 def test_dream_runner_accepts_callable_timeline_thread_loader() -> None:
     calls: list[str] = []
