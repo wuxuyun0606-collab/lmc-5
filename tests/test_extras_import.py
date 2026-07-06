@@ -332,6 +332,7 @@ def test_recall_pipeline_explain_trace_merges_score_breakdowns():
         vector_search=fake_vector,
         fts_search=fake_fts,
         fts_floor=0.45,
+        fusion="raw",
     )
     result = pipeline.recall("deployment")
 
@@ -558,6 +559,7 @@ def test_recall_pipeline_minmax_fusion_prevents_fixed_graph_domination():
         vector_search=fake_vector,
         graph_expand=fake_graph,
         final_top_k=5,
+        fusion="minmax",
     )
     result = pipeline.recall("读书室 聊天条 挽救计划")
 
@@ -590,6 +592,7 @@ def test_recall_pipeline_minmax_fusion_keeps_emotion_boolean_channel_modest():
         vector_search=fake_vector,
         emotion_resonate=fake_emotion,
         final_top_k=3,
+        fusion="minmax",
     ).recall("test")
 
     assert result.hits[0].source_id == 1
@@ -624,6 +627,7 @@ def test_recall_pipeline_fusion_rewards_vector_graph_cross_validation():
         vector_search=fake_vector,
         graph_expand=fake_graph,
         final_top_k=3,
+        fusion="minmax",
     ).recall("cross checked")
 
     assert result.hits[0].source_id == 1
@@ -705,6 +709,20 @@ def test_user_prompt_submit_exposes_recall_fusion_env(monkeypatch):
         "fusion": "rrf",
         "rrf_k": 42,
         "output_mode": "layered",
+    }
+
+
+def test_user_prompt_submit_defaults_to_rrf(monkeypatch):
+    from extras.pgvector_backend.hooks.user_prompt_submit import recall_fusion_settings_from_env
+
+    monkeypatch.delenv("LMC5_RECALL_FUSION", raising=False)
+    monkeypatch.delenv("LMC5_RECALL_RRF_K", raising=False)
+    monkeypatch.delenv("LMC5_RECALL_OUTPUT", raising=False)
+
+    assert recall_fusion_settings_from_env() == {
+        "fusion": "rrf",
+        "rrf_k": 60,
+        "output_mode": "flat",
     }
 
 

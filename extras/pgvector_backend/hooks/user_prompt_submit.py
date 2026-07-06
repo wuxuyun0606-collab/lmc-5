@@ -91,12 +91,13 @@ def _env_int(name: str, default: int) -> int:
 def recall_fusion_settings_from_env() -> dict:
     """Read optional recall score-fusion knobs from environment.
 
-    LMC5_RECALL_FUSION accepts raw/minmax/rrf. RecallPipeline validates the
-    value so deployment mistakes fail visibly during hook build rather than
-    silently falling back to a surprising ranking mode.
+    LMC5_RECALL_FUSION accepts raw/minmax/rrf. The default is rrf after
+    real-trace A/B showed better top5 composition than minmax. RecallPipeline
+    validates the value so deployment mistakes fail visibly during hook build
+    rather than silently falling back to a surprising ranking mode.
     """
     return {
-        "fusion": os.environ.get("LMC5_RECALL_FUSION", "minmax"),
+        "fusion": os.environ.get("LMC5_RECALL_FUSION", "rrf"),
         "rrf_k": _env_int("LMC5_RECALL_RRF_K", 60),
         # flat keeps legacy consumers stable. Set layered only when the caller
         # knows how to display/use the separated authority/navigation/graph

@@ -323,7 +323,7 @@ class RecallPipeline:
         raw_events_floor: float = 0.30,
         final_top_k: int = 10,
         injection_budget_chars: int = 4000,
-        fusion: str = "minmax",
+        fusion: str = "rrf",
         channel_weights: Optional[dict[str, float]] = None,
         rrf_k: int = 60,
         minmax_neutral_score: float = 0.5,
@@ -378,9 +378,9 @@ class RecallPipeline:
             literal_query_max_chars: 超过这个长度不跑 literal_search，避免长 prompt
                                      对 raw_events 做无意义 ILIKE
             injection_budget_chars: 最终拼到 system prompt 的字符上限
-            fusion: 通道融合策略。raw=旧行为（直接比原始分）；minmax=每条通道
-                    内 min-max 到 [0,1] 后乘权重；rrf=Reciprocal Rank Fusion。
-                    minmax 是默认止血，rrf 供真实 trace A/B。
+            fusion: 通道融合策略。raw=旧行为（直接比原始分）；rrf=Reciprocal
+                    Rank Fusion，默认推荐；minmax=每条通道内 min-max 到 [0,1]
+                    后乘权重，保留为可选对照。
             channel_weights: 通道先验权重，覆盖默认值。
             rrf_k: RRF 平滑常数，默认 60。
             minmax_neutral_score: minmax 遇到单条命中/全同分时的中性分。

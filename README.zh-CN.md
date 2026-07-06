@@ -538,7 +538,7 @@ archive 不能压过 curated 主路，也不能混进主排名；除非部署方
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | hook 环境变量：是否启用精确 raw-events 通道 |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | hook 环境变量：是否启用可选 recent raw_chunk 桥 |
 | `LMC5_COLD_ARCHIVE_FALLBACK` | 0 | hook 环境变量：是否启用冷归档兜底；只有暖层全空才开箱 |
-| `LMC5_RECALL_FUSION` | `minmax` | hook 环境变量：召回分数融合模式（`raw`、`minmax`、`rrf`） |
+| `LMC5_RECALL_FUSION` | `rrf` | hook 环境变量：召回分数融合模式（`raw`、`minmax`、`rrf`） |
 | `LMC5_RECALL_RRF_K` | 60 | hook 环境变量：`rrf` 模式下的 RRF 平滑常数 |
 | `LMC5_RECALL_OUTPUT` | `flat` | hook 环境变量：`flat` 保持旧列表输出；`layered` 输出主召回/原文邻域/图扩展/兜底档案四层 |
 | `nap.run_nap` | callable | 小睡有两个触发时机：会话切换时独立运行；也可挂进 `DreamRunner` 在 hippocampus 前运行。职责是补缺失向量 + 给孤儿记忆轻量连边 |
@@ -551,7 +551,10 @@ raw events 是最大、最吵的池子，只有前两层都空手时才启动。
 短专名、代号、带引号短语和 CJK 精确词的小通道，防止弱 vector 命中否决原始日志里的
 字面命中。
 
-分数融合发生在各通道检索之后。默认 `minmax` 让不同通道量纲可比；当原始分数不可信时可切到 `rrf`。融合之后下游召回不再使用绝对分数地板过滤，避免 RRF 小分值被整批打掉。
+分数融合发生在各通道检索之后。默认 `rrf`（Reciprocal Rank Fusion）来自
+726 条真实召回 trace 的 A/B 回放：它能压住 graph/emotion 跑题霸榜，同时提高 top5
+跨通道互证比例。`minmax` 仍保留，但它有一个真实 trade-off：通道内末名会被拉到接近
+0，vector 第 4、5 名即使原始置信度还不错，也可能输给 graph 的中性分。融合之后下游召回不再使用绝对分数地板过滤，避免 RRF 小分值被整批打掉。
 
 分层输出是 opt-in。默认 `flat` 不影响旧消费方；`layered` 会拆成
 `main_recall`（权威层）、`source_neighborhood`（短导航层）、
@@ -705,5 +708,6 @@ Alpha。API 还很小，之后可能变化。目前目标是让这套坐标模�
 
 鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory`
 chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，
-也鸣谢蛋宝老师家的蛋壳的 swap 设计。LMC-5 吸收这些设计对话，但保持自己的
-provider-free、可审计实现边界。
+也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕提供真实 trace issue 与 726 条召回
+A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，
+但保持自己的 provider-free、可审计实现边界。

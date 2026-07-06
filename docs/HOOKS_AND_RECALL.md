@@ -217,12 +217,16 @@ queries, and raw_chunk is off unless explicitly enabled.
 `RecallPipeline` supports three cross-channel fusion modes:
 
 - `raw`: legacy behavior; compare original channel scores directly.
-- `minmax`: normalize scores within each channel, then apply channel priors.
-  This is the default hook mode and prevents fixed-score channels such as graph
-  expansion from dominating vector hits by scale alone.
 - `rrf`: Reciprocal Rank Fusion. It ignores original score magnitudes and fuses
-  by within-channel rank. Enable with `LMC5_RECALL_FUSION=rrf`; tune
+  by within-channel rank. This is the default hook mode after a 726-real-trace
+  A/B replay showed cleaner top5 composition and stronger cross-channel
+  validation than `minmax`; see `docs/RECALL_FUSION_AB_20260706.md`. Tune
   `LMC5_RECALL_RRF_K` if needed.
+- `minmax`: normalize scores within each channel, then apply channel priors.
+  This prevents fixed-score channels such as graph expansion from dominating
+  vector hits by scale alone, but it can collapse the tail of a high-confidence
+  vector channel: vector rank 4/5 may normalize close to zero and lose to a
+  neutral graph score.
 
 Fusion runs after vector/FTS/literal/raw_chunk/graph/emotion/perception
 retrieval and before dedup/rerank. Downstream recall currently sorts, traces,

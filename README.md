@@ -666,7 +666,7 @@ to enable. Without it, the pipeline uses the raw query only.
 | `LMC5_LITERAL_RAW_EVENTS` | 1 | Hook env var: enable exact raw-events channel |
 | `LMC5_RAW_CHUNK_BRIDGE` | 0 | Hook env var: enable optional recent raw_chunk bridge |
 | `LMC5_COLD_ARCHIVE_FALLBACK` | 0 | Hook env var: enable cold archive fallback; only opens when warmer layers found nothing |
-| `LMC5_RECALL_FUSION` | `minmax` | Hook env var: recall score fusion mode (`raw`, `minmax`, `rrf`) |
+| `LMC5_RECALL_FUSION` | `rrf` | Hook env var: recall score fusion mode (`raw`, `minmax`, `rrf`) |
 | `LMC5_RECALL_RRF_K` | 60 | Hook env var: RRF smoothing constant when fusion mode is `rrf` |
 | `LMC5_RECALL_OUTPUT` | `flat` | Hook env var: `flat` legacy list output, or `layered` authority/navigation/association/fallback sections |
 | `nap.run_nap` | callable | Nap can run in two places: independently at session switch, and optionally inside `DreamRunner` before hippocampus; it backfills missing vectors + lightly links orphan memories |
@@ -681,10 +681,13 @@ the exception: it is a small exact-match lane for short proper nouns, codenames,
 quoted phrases, and CJK terms. It prevents a weak vector hit from vetoing an
 exact raw log match.
 
-Score fusion happens only after channel retrieval. The `minmax` default keeps
-channel scales comparable; `rrf` is available when channel scores are not
-trustworthy, and downstream recall does not apply absolute score floors after
-fusion.
+Score fusion happens only after channel retrieval. The default is `rrf`
+(Reciprocal Rank Fusion), chosen after a 726-real-trace A/B replay showed it
+kept graph/emotion from dominating while nearly doubling cross-channel
+validation in the top5. `minmax` remains available, but it can collapse the tail
+of a strong vector channel: the 4th/5th vector hit may be normalized close to
+zero and lose to a neutral graph score. Downstream recall does not apply
+absolute score floors after fusion, so RRF's small scores are preserved.
 
 Layered output is opt-in. `flat` remains the default for existing consumers.
 `layered` separates `main_recall` (authority), `source_neighborhood` (short
@@ -867,7 +870,7 @@ platform.
 
 ## Acknowledgements
 
-鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory` chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，也鸣谢蛋宝老师家的蛋壳的 swap 设计。LMC-5 吸收这些设计对话，但保持自己的 provider-free、可审计实现边界。
+鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory` chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕提供真实 trace issue 与 726 条召回 A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，但保持自己的 provider-free、可审计实现边界。
 
 Thanks to 鹤见老师's `ombre-brain` for the breath design, 盏老师's
 `imprint-memory` for the chunk design, 电脑眠眠豹 for the chord emotion design,

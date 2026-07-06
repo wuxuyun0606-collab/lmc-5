@@ -31,6 +31,12 @@
   the raw event journal when vector top score < 0.30. Catches keywords that
   only appeared in raw conversation turns, never promoted to curated memory.
 
+### Changed
+- **Recall fusion default: RRF.** `RecallPipeline` and the production hook now
+  default to `fusion="rrf"` after a 726-real-trace A/B replay showed better top5
+  composition than `minmax`. `minmax` remains selectable, with docs noting its
+  tail-collapse trade-off.
+
 ### Fixed
 - **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
   decides *how* to score) but forgot the layer that decides *which memories
