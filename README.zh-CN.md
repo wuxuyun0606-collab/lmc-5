@@ -708,6 +708,6 @@ Alpha。API 还很小，之后可能变化。目前目标是让这套坐标模�
 
 鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory`
 chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，
-也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕提供真实 trace issue 与 726 条召回
+也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕和乌桕家的 Clavis 提供真实 trace issue 与 726 条召回
 A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，
 但保持自己的 provider-free、可审计实现边界。

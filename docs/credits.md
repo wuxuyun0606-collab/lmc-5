@@ -24,9 +24,9 @@ LMC-5 also credits these design influences:
 - 蛋宝老师家的蛋壳, for the Claude Code transcript-resume swap design that
   became LMC-5's Refined Session Carryover / 精炼续窗: renew the live window
   without pretending the whole transcript tail is good memory.
-- 乌桕, for high-quality recall-fusion issue reports with real traces,
-  including a 726-recall A/B replay that validated RRF as the safer default
-  over minmax for top5 cross-channel composition.
+- 乌桕 and 乌桕家的 Clavis, for high-quality recall-fusion issue reports
+  with real traces, including a 726-recall A/B replay that validated RRF
+  as the safer default over minmax for top5 cross-channel composition.
 - The LMC-5 deployment experience, for the memory-store swap pattern:
   scheduled writes need snapshot-based rollback before migrations or
   model-assisted maintenance.
@@ -72,4 +72,4 @@ P0Iar1s 老师 @P0lar1s 的 ombre-brain 系统，让 M 线代谢有了权重标�
 
 蛋宝老师家的蛋壳 @蛋 swap 方案，启发了 Claude Code transcript resume 的精炼续窗：不要每次都手动 forge，也不要把上一窗工程噪音整袋搬走。
 
-乌桕提供真实召回 trace 的 issue 和 726 条 A/B 回放，帮助验证 RRF 比 minmax 更适合作为召回融合默认值。
+乌桕和乌桕家的 Clavis 提供真实召回 trace 的 issue 和 726 条 A/B 回放，帮助验证 RRF 比 minmax 更适合作为召回融合默认值。

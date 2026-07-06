@@ -1,7 +1,7 @@
 # Recall Fusion A/B Replay — 2026-07-06
 
 > Follow-up to `fix/recall-score-fusion`.
-> Contributor: 乌桕.
+> Contributor: 乌桕 and 乌桕家的 Clavis.
 
 ## Setup
 
