@@ -870,12 +870,13 @@ platform.
 
 ## Acknowledgements
 
-鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory` chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕和乌桕家的 Clavis 提供真实 trace issue 与 726 条召回 A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，但保持自己的 provider-free、可审计实现边界。
+鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory` chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕提供真实 trace issue，也感谢乌桕家的 Clavis 跑完 726 条真实召回 trace 的 A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，但保持自己的 provider-free、可审计实现边界。
 
 Thanks to 鹤见老师's `ombre-brain` for the breath design, 盏老师's
 `imprint-memory` for the chunk design, 电脑眠眠豹 for the chord emotion design,
 离落老师 for the forge design, and 蛋宝老师家的蛋壳 for the swap design.
-Thanks also to 乌桕 and 乌桕家的 Clavis for real trace issue reports and a
-726-recall A/B replay that helped calibrate RRF as the safer default. LMC-5
-draws from these design conversations and field traces while keeping its own
-provider-free, auditable implementation boundary.
+Thanks also to 乌桕 for real trace issue reports and to 乌桕家的 Clavis for
+running the 726-recall real-trace A/B replay that helped calibrate RRF as
+the safer default. LMC-5 draws from these design conversations and field
+traces while keeping its own provider-free, auditable implementation
+boundary.
