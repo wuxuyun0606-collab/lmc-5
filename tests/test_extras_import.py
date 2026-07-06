@@ -668,6 +668,15 @@ def test_recall_pipeline_rrf_fusion_is_selectable():
     assert graph_hit.metadata["score_breakdown"]["relation_weighted_rrf"] < semantic["semantic_weighted_rrf"]
 
 
+def test_recall_pipeline_empty_fusion_uses_rrf_default():
+    """Explicit None/empty fusion values should still mean the documented default."""
+    from extras.pgvector_backend.recall_pipeline import RecallPipeline
+
+    assert RecallPipeline(fusion=None).fusion == "rrf"
+    assert RecallPipeline(fusion="").fusion == "rrf"
+    assert RecallPipeline(fusion="raw").fusion == "raw"
+
+
 def test_recall_pipeline_rrf_small_scores_are_not_thresholded_away():
     """RRF scores are tiny; downstream recall must sort/inject them, not floor them."""
     from extras.pgvector_backend.recall_pipeline import RecallPipeline, RecallHit

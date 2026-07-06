@@ -433,7 +433,7 @@ class RecallPipeline:
         self.raw_events_floor = raw_events_floor
         self.final_top_k = final_top_k
         self.injection_budget_chars = injection_budget_chars
-        fusion = str(fusion or "raw").lower()
+        fusion = str(fusion or "rrf").lower()
         if fusion not in _SCORE_FUSIONS:
             raise ValueError(
                 f"RecallPipeline: fusion must be one of {sorted(_SCORE_FUSIONS)}, "
