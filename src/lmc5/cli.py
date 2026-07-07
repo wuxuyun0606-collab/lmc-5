@@ -8,9 +8,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .atom_quality import build_atom_quality_report
 from .consolidation import consolidate_events
 from .fact_evolution import run_z_audit
-from .hippocampus import run_hippocampus
+from .hippocampus import deterministic_proposer, run_hippocampus
 from .metabolism import patrol
 from .models import RELATION_TYPES
 from .redact import redact_obj
@@ -308,8 +309,46 @@ def cmd_hippocampus(args: argparse.Namespace) -> None:
             max_promote=args.max_promote,
             apply=args.apply,
             create_relations=not args.no_relations,
+            proposer=deterministic_proposer if args.legacy_chunk_proposer else None,
         )
     _print_json(result.to_dict())
+
+
+def cmd_atom_audit(args: argparse.Namespace) -> None:
+    with MemoryStore(args.db) as store:
+        store.init()
+        if args.consolidate:
+            consolidate_events(
+                store,
+                window_size=args.window_size,
+                channel=args.channel,
+                max_events=args.max_events,
+                create_observations=False,
+            )
+        result = run_hippocampus(
+            store,
+            channel=args.channel,
+            limit_chunks=args.limit_chunks,
+            min_importance=args.min_importance,
+            max_promote=args.max_promote,
+            apply=False,
+            create_relations=not args.no_relations,
+            proposer=deterministic_proposer if args.legacy_chunk_proposer else None,
+        )
+    report = build_atom_quality_report(result.candidates, sample_limit=args.sample_limit)
+    _print_json(
+        {
+            "mode": "legacy_chunk" if args.legacy_chunk_proposer else "atomic_event",
+            "writes_memories": False,
+            "hippocampus": {
+                "chunks_seen": result.chunks_seen,
+                "candidates_seen": result.candidates_seen,
+                "promote_ready": result.promote_ready,
+                "rejected": len(result.rejected),
+            },
+            "quality": report.to_dict(),
+        }
+    )
 
 
 def cmd_z_audit(args: argparse.Namespace) -> None:
@@ -580,9 +619,43 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="first create event chunks from unconsolidated raw events",
     )
+    p_hippocampus.add_argument(
+        "--legacy-chunk-proposer",
+        action="store_true",
+        help="use the old one-candidate-per-chunk deterministic proposer",
+    )
     p_hippocampus.add_argument("--window-size", type=int, default=20)
     p_hippocampus.add_argument("--max-events", type=int, default=500)
     p_hippocampus.set_defaults(func=cmd_hippocampus)
+
+    p_atom_audit = sub.add_parser(
+        "atom-audit",
+        parents=[parent],
+        help="dry-run candidate atom quality checks; run on a temp DB copy for audits",
+    )
+    p_atom_audit.add_argument("--channel")
+    p_atom_audit.add_argument("--limit-chunks", type=int, default=50)
+    p_atom_audit.add_argument("--min-importance", type=int, default=7)
+    p_atom_audit.add_argument("--max-promote", type=int, default=10)
+    p_atom_audit.add_argument("--sample-limit", type=int, default=10)
+    p_atom_audit.add_argument(
+        "--no-relations",
+        action="store_true",
+        help="skip relation planning",
+    )
+    p_atom_audit.add_argument(
+        "--consolidate",
+        action="store_true",
+        help="first create event chunks from unconsolidated raw events",
+    )
+    p_atom_audit.add_argument(
+        "--legacy-chunk-proposer",
+        action="store_true",
+        help="compare against the old one-candidate-per-chunk proposer",
+    )
+    p_atom_audit.add_argument("--window-size", type=int, default=20)
+    p_atom_audit.add_argument("--max-events", type=int, default=500)
+    p_atom_audit.set_defaults(func=cmd_atom_audit)
 
     p_z_audit = sub.add_parser(
         "z-audit",

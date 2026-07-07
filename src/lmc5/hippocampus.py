@@ -48,6 +48,7 @@ class MemoryCandidate:
     confidence: float | None = 0.55
     importance: int = 5
     source_chunk_ids: list[int] = field(default_factory=list)
+    source_event_ids: list[int] = field(default_factory=list)
     evidence: str = ""
     relation_hints: list[dict[str, Any]] = field(default_factory=list)
 
@@ -65,6 +66,7 @@ class MemoryCandidate:
             "confidence": self.confidence,
             "importance": self.importance,
             "source_chunk_ids": self.source_chunk_ids,
+            "source_event_ids": self.source_event_ids,
             "evidence": self.evidence,
             "relation_hints": self.relation_hints,
         }
@@ -134,6 +136,47 @@ def _compact(text: str, *, limit: int = 180) -> str:
     return clean[: limit - 3].rstrip() + "..."
 
 
+def _sentence_atom(text: str, *, limit: int = 260) -> str:
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return ""
+    parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?。！？])\s+|\n+", clean)
+        if part.strip()
+    ]
+    head = parts[0] if parts else clean
+    if len(head) < 40 and len(parts) > 1:
+        head = f"{head} {parts[1]}"
+    return _compact(head, limit=limit).strip("\"'` ")
+
+
+def _title_from_event(role: str, text: str) -> str:
+    prefix_by_role = {
+        "user": "User said",
+        "assistant": "Assistant replied",
+        "system": "System note",
+        "note": "Session note",
+        "environment": "Environment note",
+    }
+    prefix = prefix_by_role.get(role, f"{role.title()} event")
+    return _compact(f"{prefix}: {_sentence_atom(text, limit=72)}", limit=96)
+
+
+def _content_from_event(role: str, text: str, channel: str) -> str:
+    atom = _sentence_atom(text, limit=280)
+    role_text = {
+        "user": "the user said",
+        "assistant": "the assistant replied",
+        "system": "the system recorded",
+        "note": "the session note recorded",
+        "environment": "the environment recorded",
+    }.get(role, f"the {role} event recorded")
+    if channel and channel != "default":
+        return f"In channel '{channel}', {role_text}: \"{atom}\"."
+    return f"{role_text.capitalize()}: \"{atom}\"."
+
+
 def _has_sensitive_material(text: str) -> bool:
     return any(pattern.search(text) for pattern in DEFAULT_REJECT_PATTERNS)
 
@@ -168,8 +211,77 @@ def _chunk_rows(
     ).fetchall()
 
 
+def _source_events(conn: sqlite3.Connection, chunk_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT e.*
+          FROM events e
+          JOIN chunk_events ce ON ce.event_id = e.id
+         WHERE ce.chunk_id = ?
+         ORDER BY e.id ASC
+        """,
+        (chunk_id,),
+    ).fetchall()
+
+
+def atomic_memory_proposer(
+    conn: sqlite3.Connection,
+    chunks: Sequence[sqlite3.Row],
+) -> list[MemoryCandidate]:
+    """Build one reviewable candidate per source event instead of per chunk.
+
+    The legacy proposer copied chunk summaries into memory content. That made
+    recall surface "Event chunk 1-20; First/Last/Keywords" scaffolding instead
+    of a memory atom. This proposer still stays provider-free, but it rewrites
+    each linked event into a compact, attributable atom.
+    """
+
+    candidates: list[MemoryCandidate] = []
+    for row in chunks:
+        chunk_id = int(row["id"])
+        events = _source_events(conn, chunk_id)
+        if not events:
+            candidates.extend(deterministic_proposer([row]))
+            continue
+        for event in events:
+            role = str(event["role"])
+            if role == "tool":
+                continue
+            raw_text = str(event["content"] or "")
+            atom = _sentence_atom(raw_text)
+            if len(atom) < 20:
+                continue
+            keywords = _keywords(atom)
+            tags = [str(item) for item in keywords[:4] if str(item).strip()]
+            importance = 6 + min(len(tags), 2)
+            lowered = raw_text.lower()
+            if any(word in lowered for word in ("risk", "rollback", "production", "secret")):
+                importance += 1
+            risk = "medium" if _has_sensitive_material(raw_text) else "normal"
+            event_id = int(event["id"])
+            channel = str(event["channel"] or row["channel"])
+            candidates.append(
+                MemoryCandidate(
+                    title=_title_from_event(role, atom),
+                    content=_content_from_event(role, atom, channel),
+                    thread="awareness",
+                    category="observation",
+                    tags=["hippocampus", "atom", role, *tags],
+                    status="review",
+                    risk_level=risk,
+                    urgency="normal",
+                    confidence=0.6,
+                    importance=min(10, importance),
+                    source_chunk_ids=[chunk_id],
+                    source_event_ids=[event_id],
+                    evidence=f"event_id={event_id}: {_compact(atom, limit=180)}",
+                )
+            )
+    return candidates
+
+
 def deterministic_proposer(chunks: Sequence[sqlite3.Row]) -> list[MemoryCandidate]:
-    """Build conservative candidates without calling a model."""
+    """Build legacy chunk-level candidates without calling a model."""
 
     candidates: list[MemoryCandidate] = []
     for row in chunks:
@@ -220,6 +332,9 @@ def _reject_reason(candidate: MemoryCandidate, *, min_importance: int) -> str | 
 
 def _candidate_trace(candidate: MemoryCandidate) -> str:
     chunk_text = ",".join(str(chunk_id) for chunk_id in sorted(candidate.source_chunk_ids))
+    event_text = ",".join(str(event_id) for event_id in sorted(candidate.source_event_ids))
+    if event_text:
+        return f"hippocampus:chunks={chunk_text}:events={event_text}"
     return f"hippocampus:chunks={chunk_text}"
 
 
@@ -348,15 +463,21 @@ def run_hippocampus(
         raise ValueError("max_promote must be positive")
 
     chunks = _chunk_rows(store.conn, channel=channel, limit_chunks=limit_chunks)
-    propose = proposer or deterministic_proposer
-    candidates = list(propose(chunks))
+    if proposer is None:
+        candidates = atomic_memory_proposer(store.conn, chunks)
+    else:
+        candidates = list(proposer(chunks))
 
     accepted: list[MemoryCandidate] = []
     rejected: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, tuple[int, ...]]] = set()
+    seen_keys: set[tuple[str, tuple[int, ...], tuple[int, ...]]] = set()
     for candidate in candidates:
         reason = _reject_reason(candidate, min_importance=min_importance)
-        key = (candidate.content.strip(), tuple(sorted(candidate.source_chunk_ids)))
+        key = (
+            candidate.content.strip(),
+            tuple(sorted(candidate.source_chunk_ids)),
+            tuple(sorted(candidate.source_event_ids)),
+        )
         if reason is None and key in seen_keys:
             reason = "duplicate_candidate"
         if reason is None:
