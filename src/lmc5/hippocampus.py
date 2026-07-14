@@ -142,11 +142,12 @@ def _sentence_atom(text: str, *, limit: int = 260) -> str:
         return ""
     parts = [
         part.strip()
-        for part in re.split(r"(?<=[.!?。！？])\s+|\n+", clean)
+        for part in re.split(r"(?<=[.!?。！？])(?:\s+|(?=\S))|\n+", clean)
         if part.strip()
     ]
     head = parts[0] if parts else clean
-    if len(head) < 40 and len(parts) > 1:
+    han_chars = len(re.findall(r"[\u4e00-\u9fff]", head))
+    if len(head) < 40 and han_chars < 8 and len(parts) > 1:
         head = f"{head} {parts[1]}"
     return _compact(head, limit=limit).strip("\"'` ")
 

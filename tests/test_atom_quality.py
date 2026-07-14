@@ -1,6 +1,6 @@
 from lmc5.atom_quality import assess_atom_quality, build_atom_quality_report
 from lmc5.consolidation import consolidate_events
-from lmc5.hippocampus import deterministic_proposer, run_hippocampus
+from lmc5.hippocampus import _sentence_atom, deterministic_proposer, run_hippocampus
 from lmc5.store import MemoryStore
 
 
@@ -85,3 +85,23 @@ def test_atom_quality_rejects_generic_pipeline_title():
 
     assert assessment.label == "too_coarse"
     assert "needs_rewrite" in assessment.flags
+
+
+def test_atom_quality_accepts_meaningful_chinese_without_spaces():
+    assessment = assess_atom_quality(
+        {
+            "title": "远程向量调用增加脱敏",
+            "content": "远程向量调用会先清理密钥和数据库地址再发送。",
+            "evidence": "代码审计确认三条远程适配器共用同一脱敏入口。",
+            "source_chunk_ids": [7],
+        }
+    )
+
+    assert assessment.label == "pass"
+    assert assessment.flags == []
+
+
+def test_sentence_atom_splits_chinese_punctuation_without_spaces():
+    text = "第一条记忆已经完成脱敏。第二条属于另一个独立事实。"
+
+    assert _sentence_atom(text) == "第一条记忆已经完成脱敏。"

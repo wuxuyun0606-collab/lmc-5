@@ -29,7 +29,8 @@ NOISE_PATTERNS = (
     re.compile(r"\bNo response requested\b", re.I),
     re.compile(r"\bRequest interrupted by user\b", re.I),
 )
-WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}")
+LATIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
+HAN_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,10 @@ def _text(candidate: Mapping[str, Any], key: str) -> str:
 
 
 def _word_count(text: str) -> int:
-    return len(WORD_RE.findall(text))
+    # Whitespace/token boundaries are meaningful for Latin text, but ordinary
+    # Chinese prose has no spaces. Counting a full Han run as one word makes a
+    # perfectly useful Chinese atom look shorter than a five-word threshold.
+    return len(LATIN_WORD_RE.findall(text)) + len(HAN_CHAR_RE.findall(text))
 
 
 def assess_atom_quality(candidate: Mapping[str, Any]) -> AtomQualityAssessment:
