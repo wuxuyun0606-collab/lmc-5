@@ -56,6 +56,11 @@ HOOK_RE = re.compile(
     re.I,
 )
 
+INJECTION_BLOCK_RE = re.compile(
+    r"</?(?:task-notification|system-reminder)\b",
+    re.I,
+)
+
 POISON_RE = re.compile(
     r"(AUP|Acceptable Use|policy violation|policy blocked|unsafe content|refusal loop|"
     r"I can't assist|I'm sorry, I can't|风控|安全策略|毒上下文|中毒|拒绝循环|我不能帮助)",
@@ -126,6 +131,35 @@ def event_text(event: dict) -> str:
     return content_text(message.get("content", ""))
 
 
+def is_injection_block(event: dict) -> bool:
+    """Return True for exact runtime-injection wrappers that must never carry over."""
+    return bool(INJECTION_BLOCK_RE.search(event_text(event)))
+
+
+def synthetic_user_prefix(template: dict) -> dict:
+    """Build a minimal user event without discarding assistant-first carryover."""
+    prefix = copy.deepcopy(template)
+    prefix["type"] = "user"
+    prefix["userType"] = "external"
+    prefix["isMeta"] = False
+    prefix["isSidechain"] = False
+    prefix["message"] = {
+        "role": "user",
+        "content": "[refined-carryover: preserved high-signal context follows]",
+    }
+    for key in ("requestId", "isApiErrorMessage", "error", "durationMs", "usage", "costUSD"):
+        prefix.pop(key, None)
+    return prefix
+
+
+def ensure_user_first(events: Sequence[dict]) -> List[dict]:
+    """Prefix a format sentinel when selected history starts with an assistant."""
+    selected = list(events)
+    if not selected or selected[0].get("type") == "user":
+        return selected
+    return [synthetic_user_prefix(selected[0]), *selected]
+
+
 def compact_text(text: str, max_chars: int) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     text = re.sub(r"\n{4,}", "\n\n\n", text)
@@ -170,6 +204,8 @@ def is_dialogue_event(event: dict) -> bool:
 
 def classify_event(index: int, event: dict, max_chars: int) -> Optional[Candidate]:
     if not is_dialogue_event(event):
+        return None
+    if is_injection_block(event):
         return None
     text = event_text(event)
     memory_hits = len(MEMORY_RE.findall(text))
@@ -252,9 +288,6 @@ def select_refined_events(
         dropped = len(remove_ids)
         selected_list = [candidate for candidate in selected_list if candidate.index not in remove_ids]
 
-    first_user = next((i for i, candidate in enumerate(selected_list) if candidate.event.get("type") == "user"), 0)
-    selected_list = selected_list[first_user:]
-
     stats = CarryoverStats(
         source_dialogue_events=sum(1 for event in events if event.get("type") in KEEP_TYPES),
         clean_candidates=len(candidates),
@@ -264,7 +297,7 @@ def select_refined_events(
         dropped_for_budget=dropped,
         poison_score=poison,
     )
-    return [candidate.event for candidate in selected_list], stats
+    return ensure_user_first([candidate.event for candidate in selected_list]), stats
 
 
 def rewrite_session(events: Sequence[dict], new_session_id: str) -> List[dict]:
