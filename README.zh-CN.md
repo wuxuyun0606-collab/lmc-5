@@ -67,6 +67,10 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 > 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
 > hippocampus 关系构建、E 轴 shadow scoring 和 production cron。
 
+如果你已经开始接 VPS、夜梦、冷仓、自定义中文词典或多通道召回，请同时看
+[`《LMC-5 避坑指南》`](docs/LMC-5避坑指南.md)。它按“症状—根因—责任层—修法—验收”整理
+真实部署里出现过的静默丢批、半成功写入、水位跳洞、冷仓误洗、RRF/QE 和精炼续窗问题。
+
 ### 五线自动化速查
 
 LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron/systemd**。
