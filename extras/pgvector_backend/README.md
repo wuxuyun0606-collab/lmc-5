@@ -55,6 +55,11 @@ reference implementations of axes that the core only sketches.
 Nothing here is imported by the core package. You install and wire it up
 yourself.
 
+Remote embedding adapters run all outbound text through
+`lmc5.redact.redact_embedding_input()` before truncation and transmission.
+This is a last-line secret/infrastructure scrub, not a substitute for deciding
+which memories are allowed to leave the local machine.
+
 ## Why opt-in
 
 - LMC-5 stays provider-free and offline-first by default. PostgreSQL is a real
