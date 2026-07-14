@@ -72,7 +72,7 @@ yourself.
 | `schema.sql` | new | Full DDL: `lmc5_curated_memories`, `lmc5_vectors`, `lmc5_memory_relations`, `lmc5_z_audit`, `lmc5_cold_storage`, `lmc5_narrative_index`, `lmc5_e_axis_failures`, `lmc5_dynamic_stopwords`. Run before any of the Python modules. |
 | `.env.example` | new | Environment template — PG DSN, embedder choice (Gemini / Voyage / local), housekeeper LLM keys (DeepSeek default), `LMC5_*` config overrides, Telegram bot token, log/backup paths. **Copy to `.env` and never commit real values.** |
 | `vector_pgvector.py` | replaces `src/lmc5/vector.py` | PostgreSQL + halfvec + ivfflat ANN. Embedder injected via callable. |
-| `night_dream.py` | upgrades `hippocampus.py` + `consolidation.py` | LLM proposer + 6-type classifier + safety gates + safe-relation expansion driven by `candidate.relation_hints`. All failures and `max_promote` truncations log explicitly — no silent drops. Falls back to deterministic baseline if no LLM is wired. |
+| `night_dream.py` | upgrades `hippocampus.py` + `consolidation.py` | LLM proposer + 6-type classifier + safety gates + safe-relation expansion driven by `candidate.relation_hints`. Proposer/candidate-write failures raise for retry; noncritical enrichment failures and `max_promote` truncations log explicitly. Falls back to deterministic baseline if no LLM is wired. |
 | `narrative_timeline.py` | new (no core equivalent) | Weekly / monthly narrative index. Picks seeds by weight × arousal, reflects to a title + paragraph. Reflector is injected; default is deterministic. |
 | `ob_recall.py` | upgrades `scoring.py` | Ombre-Brain-style score with category half-life, time ripple, Russell distance for emotional resonance. Decay formula shared between write-time and metabolism. |
 | `e_axis_scorer.py` | upgrades the E axis | LLM-based emotional scoring with categorized failure logs, exponential-backoff retry on retryable failures (timeout / empty / non-JSON), `min_confidence` gate, and `is_in_shadow_period(...)` helper so the shadow window is enforced in code, not in discipline. Provider-agnostic — pass any `llm_call(prompt, timeout) -> str` callable. |
@@ -91,6 +91,13 @@ yourself.
 | File | Purpose |
 |------|---------|
 | `migrations/20260620_quarantine_heartbeat_detector_pollution.sql` | Archives old rows created by the invalid `source='heartbeat_detector'` direct-insert path, removes their vectors, closes their relation edges, and leaves an audit trail. Use this when detector raw transcripts polluted `lmc5_curated_memories`. |
+
+**NightDream failure contract.** An injected proposer must raise on transport
+errors, timeouts, empty response bodies, and response parse failures. Only a
+successfully parsed `{"candidates":[]}` may return an empty list. In apply mode,
+missing or failed candidate writes raise `NightDreamWriteError`; the caller must
+acknowledge or advance its batch watermark only after `NightDream.run()` returns.
+Candidate writes should be idempotent so a retry remains safe after a partial run.
 
 **Semantic dedup wired into `night_dream`.** Pass a
 `find_semantic_duplicates` callable (typically backed by

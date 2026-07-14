@@ -164,6 +164,20 @@ class DreamResult:
     written_ids: list[int]
     safe_relations_written: int
     review_relations_queued: int
+    proposer_errors: int = 0
+    write_errors: int = 0
+
+
+class NightDreamError(RuntimeError):
+    """Base exception for retryable NightDream run failures."""
+
+
+class NightDreamProposerError(NightDreamError):
+    """The injected proposer failed before producing a valid candidate list."""
+
+
+class NightDreamWriteError(NightDreamError):
+    """A promoted candidate could not be durably written."""
 
 
 def is_noise(text: str, min_len: int = 80) -> bool:
@@ -322,7 +336,10 @@ class NightDream:
 
     def extract(self, chunks: list[Chunk]) -> tuple[list[Candidate], int]:
         """提取候选。返回 (candidates, proposer_errors_count)。
-        proposer 报错不再吞掉——log + 返回错误计数，调用方能在 DreamResult 看到。
+
+        Provider adapters must raise on transport errors, timeouts, empty
+        response bodies, or response parse failures.  A successfully parsed
+        empty candidate list is valid and returns ``([], 0)``.
         """
         clean_chunks = [c for c in chunks if not is_noise(c.text)]
         if not clean_chunks:
@@ -332,7 +349,9 @@ class NightDream:
         except Exception as e:
             self.log.error("night_dream.extract: proposer raised %s: %s",
                            type(e).__name__, e, exc_info=True)
-            return [], 1
+            raise NightDreamProposerError(
+                f"night_dream proposer failed: {type(e).__name__}: {e}"
+            ) from e
         out: list[Candidate] = []
         skipped = 0
         for r in raw:
@@ -458,8 +477,9 @@ class NightDream:
 
         if apply:
             if self.write_candidate is None:
-                self.log.error("night_dream.run: apply=True but write_candidate is None; "
-                               "nothing will be written")
+                message = "night_dream.run: apply=True requires write_candidate"
+                self.log.error(message)
+                raise NightDreamWriteError(message)
             else:
                 semantic_dedup_skipped = 0
                 for cand in promoted:
@@ -488,8 +508,11 @@ class NightDream:
                         wid = self.write_candidate(cand)
                     except Exception as e:
                         self.log.error("night_dream.run: write_candidate failed for '%s': %s",
-                                       cand.title[:40], e)
-                        continue
+                                       cand.title[:40], e, exc_info=True)
+                        raise NightDreamWriteError(
+                            "night_dream candidate write failed for "
+                            f"'{cand.title[:40]}': {type(e).__name__}: {e}"
+                        ) from e
                     if wid is not None:
                         written_ids.append(int(wid))
                         written_pairs.append((int(wid), cand))
@@ -516,4 +539,6 @@ class NightDream:
             written_ids=written_ids,
             safe_relations_written=safe_n,
             review_relations_queued=review_n,
+            proposer_errors=proposer_errors,
+            write_errors=0,
         )
