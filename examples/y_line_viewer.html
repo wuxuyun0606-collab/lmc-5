@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LMC-5 Y-Line MVP</title>
+  <style>
+    :root {
+      --paper: #f4efe4;
+      --paper-strong: #fffaf0;
+      --ink: #20211d;
+      --muted: #716b5f;
+      --line: rgba(32, 33, 29, 0.14);
+      --iron: #2e4c4f;
+      --iron-soft: rgba(46, 76, 79, 0.12);
+      --copper: #b85b2c;
+      --copper-soft: rgba(184, 91, 44, 0.14);
+      --moss: #63743c;
+      --blueprint: #245e7a;
+      --danger: #9b332c;
+      --shadow: 0 22px 80px rgba(40, 35, 25, 0.17);
+      --font-display: "Iowan Old Style", "Songti SC", "Noto Serif CJK SC", serif;
+      --font-body: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at 18% 16%, rgba(184, 91, 44, 0.18), transparent 26rem),
+        radial-gradient(circle at 84% 8%, rgba(36, 94, 122, 0.16), transparent 25rem),
+        linear-gradient(135deg, #eee5d4 0%, #f8f0de 42%, #e9dfcc 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(32, 33, 29, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(32, 33, 29, 0.03) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: radial-gradient(circle at center, black 0%, transparent 82%);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1480px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 36px;
+      animation: rise 520ms ease-out both;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    .eyebrow {
+      color: var(--copper);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 860px;
+      margin: 8px 0 8px;
+      font-family: var(--font-display);
+      font-size: clamp(36px, 5vw, 72px);
+      font-weight: 800;
+      line-height: 0.92;
+      letter-spacing: -0.055em;
+    }
+
+    .subtitle {
+      max-width: 860px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+      min-width: min(520px, 100%);
+    }
+
+    .metric {
+      min-height: 84px;
+      padding: 14px 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 250, 240, 0.76);
+      box-shadow: 0 10px 30px rgba(60, 48, 32, 0.08);
+      backdrop-filter: blur(12px);
+    }
+
+    .metric strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr) 330px;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: rgba(255, 250, 240, 0.78);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .panel-note {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .search,
+    .select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid rgba(32, 33, 29, 0.16);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.42);
+      color: var(--ink);
+      outline: none;
+      padding: 0 13px;
+    }
+
+    .search:focus,
+    .select:focus {
+      border-color: var(--blueprint);
+      box-shadow: 0 0 0 4px rgba(36, 94, 122, 0.12);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip,
+    .ghost-button,
+    .file-button {
+      border: 1px solid rgba(32, 33, 29, 0.14);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.42);
+      color: var(--ink);
+      cursor: pointer;
+      transition: transform 150ms ease, background 150ms ease, border-color 150ms ease;
+    }
+
+    .chip {
+      padding: 8px 10px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .chip:hover,
+    .ghost-button:hover,
+    .file-button:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    .chip[aria-pressed="true"] {
+      border-color: rgba(46, 76, 79, 0.5);
+      background: var(--iron);
+      color: #fffaf0;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .toggle input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--copper);
+    }
+
+    .file-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .ghost-button,
+    .file-button {
+      padding: 10px 12px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .file-button input {
+      display: none;
+    }
+
+    .node-list {
+      display: grid;
+      gap: 8px;
+      max-height: 430px;
+      overflow: auto;
+      padding: 0 16px 16px;
+    }
+
+    .node-item {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid rgba(32, 33, 29, 0.1);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.36);
+      color: var(--ink);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .node-item.active {
+      border-color: rgba(184, 91, 44, 0.45);
+      background: var(--copper-soft);
+    }
+
+    .node-item strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .node-item span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .graph-card {
+      position: relative;
+      min-height: 680px;
+      background:
+        radial-gradient(circle at 50% 48%, rgba(46, 76, 79, 0.10), transparent 22rem),
+        linear-gradient(180deg, rgba(255, 250, 240, 0.84), rgba(242, 232, 214, 0.82));
+    }
+
+    .graph-toolbar {
+      position: absolute;
+      z-index: 3;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .graph-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 250, 240, 0.82);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      box-shadow: 0 10px 28px rgba(60, 48, 32, 0.10);
+      pointer-events: auto;
+    }
+
+    .graph-wrap {
+      position: absolute;
+      inset: 0;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+    }
+
+    .edge {
+      stroke-linecap: round;
+      transition: opacity 180ms ease, stroke-width 180ms ease;
+    }
+
+    .edge-label {
+      fill: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      paint-order: stroke;
+      stroke: rgba(255, 250, 240, 0.9);
+      stroke-width: 5px;
+    }
+
+    .node {
+      cursor: pointer;
+      filter: drop-shadow(0 14px 18px rgba(32, 33, 29, 0.16));
+    }
+
+    .node circle {
+      stroke: rgba(255, 250, 240, 0.92);
+      stroke-width: 3px;
+      transition: transform 150ms ease, stroke-width 150ms ease;
+    }
+
+    .node:hover circle {
+      transform: scale(1.04);
+      stroke-width: 5px;
+    }
+
+    .node text {
+      fill: var(--ink);
+      font-size: 12px;
+      font-weight: 900;
+      paint-order: stroke;
+      stroke: rgba(255, 250, 240, 0.88);
+      stroke-width: 5px;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+
+    .node .subtext {
+      fill: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .detail {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+    }
+
+    .detail-card {
+      padding: 14px;
+      border: 1px solid rgba(32, 33, 29, 0.12);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.42);
+    }
+
+    .detail-card h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 22px;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .detail-card p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .badge {
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: var(--iron-soft);
+      color: var(--iron);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .badge.danger {
+      background: rgba(155, 51, 44, 0.12);
+      color: var(--danger);
+    }
+
+    .badge.warn {
+      background: var(--copper-soft);
+      color: var(--copper);
+    }
+
+    .edge-list {
+      display: grid;
+      gap: 8px;
+      max-height: 320px;
+      overflow: auto;
+    }
+
+    .edge-card {
+      padding: 12px;
+      border: 1px solid rgba(32, 33, 29, 0.10);
+      border-radius: 17px;
+      background: rgba(255, 255, 255, 0.34);
+    }
+
+    .edge-card.review {
+      border-color: rgba(155, 51, 44, 0.26);
+      background: rgba(155, 51, 44, 0.07);
+    }
+
+    .edge-card strong {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .edge-card p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .review-board {
+      border-top: 1px solid var(--line);
+      padding: 16px;
+    }
+
+    .empty {
+      padding: 16px;
+      border: 1px dashed rgba(32, 33, 29, 0.18);
+      border-radius: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .hero,
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .status-strip {
+        min-width: 0;
+      }
+
+      .graph-card,
+      svg {
+        min-height: 620px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100vw - 20px, 1480px);
+        padding-top: 18px;
+      }
+
+      .status-strip {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .graph-toolbar {
+        position: static;
+        flex-direction: column;
+        padding: 14px;
+      }
+
+      .graph-wrap {
+        position: relative;
+      }
+
+      .graph-card,
+      svg {
+        min-height: 560px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">LMC-5 / Y-Line audit map</div>
+        <h1>关系不是星空，是可质问的边。</h1>
+        <p class="subtitle">
+          这是一版只读 MVP：围绕一个 seed 记忆展示局部 Y 线关系。安全边可导航，review 边只进入审计面板，不自动扩展。漂亮可以，玄学不行。
+        </p>
+      </div>
+      <div class="status-strip" aria-label="graph metrics">
+        <div class="metric"><strong id="metricNodes">0</strong><span>当前可见节点</span></div>
+        <div class="metric"><strong id="metricEdges">0</strong><span>当前可见边</span></div>
+        <div class="metric"><strong id="metricReview">0</strong><span>需要审计的边</span></div>
+        <div class="metric"><strong id="metricFocus">1-hop</strong><span>默认局部展开</span></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="panel">
+        <div class="panel-header">
+          <p class="panel-title">Controls</p>
+          <p class="panel-note">先选 seed，再看它的一跳关系。全库星图？暂时关在笼子里。</p>
+        </div>
+        <div class="controls">
+          <div class="field">
+            <label for="searchInput">搜索节点</label>
+            <input class="search" id="searchInput" type="search" placeholder="标题 / fact_key / tag">
+          </div>
+          <div class="field">
+            <label for="centerSelect">中心记忆</label>
+            <select class="select" id="centerSelect"></select>
+          </div>
+          <div class="field">
+            <label>关系类型</label>
+            <div class="chips" id="relationChips"></div>
+          </div>
+          <label class="toggle">
+            <input id="showReview" type="checkbox" checked>
+            显示 review 边，但不自动扩展
+          </label>
+          <label class="toggle">
+            <input id="showWeak" type="checkbox" checked>
+            显示 strength < 0.5 的弱边
+          </label>
+          <div class="file-row">
+            <label class="file-button">
+              载入 JSON
+              <input id="fileInput" type="file" accept="application/json,.json">
+            </label>
+            <button class="ghost-button" id="resetButton" type="button">恢复样例</button>
+          </div>
+        </div>
+        <div class="node-list" id="nodeList" aria-label="node list"></div>
+      </aside>
+
+      <section class="panel graph-card" aria-label="Y-line graph">
+        <div class="graph-toolbar">
+          <div class="graph-pill" id="graphTitle">seed: -</div>
+          <div class="graph-pill">edge = type + strength + reason</div>
+        </div>
+        <div class="graph-wrap">
+          <svg id="graphSvg" role="img" aria-label="Y line graph"></svg>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <p class="panel-title">Inspector</p>
+          <p class="panel-note">点击节点或边看证据。没有 reason 的边，别进生产。</p>
+        </div>
+        <div class="detail" id="detailPane"></div>
+        <div class="review-board">
+          <p class="panel-title">Review Queue</p>
+          <p class="panel-note">supports / contradicts / cause_effect 先审计，再决定是否影响事实。</p>
+          <div class="edge-list" id="reviewList"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const DEFAULT_GRAPH = {
+      "meta": {
+        "title": "LMC-5 Y-Line MVP Sample",
+        "seed_id": "m001",
+        "generated_at": "2026-07-01",
+        "notes": "Small audit-first graph sample. Review edges are visible but do not auto-expand."
+      },
+      "nodes": [
+        {"id":"m001","title":"生产发布前必须准备回滚与影响面检查","summary":"高风险发布前先确认回滚路径、影响范围、验证指标，再执行变更。","thread":"安全线","category":"policy","status":"current","risk_level":"high","urgency":"high","fact_key":"deploy.risk.rollback_policy","active_fact":true,"tags":["deployment","rollback","safety"]},
+        {"id":"m002","title":"发布后验证日志、指标和用户可见行为","summary":"高风险变更完成后，用日志、指标和实际页面行为三方验证，不只看命令成功。","thread":"工程线","category":"checklist","status":"current","risk_level":"medium","urgency":"normal","fact_key":"deploy.verification.checklist","active_fact":true,"tags":["verification","logs","metrics"]},
+        {"id":"m003","title":"同一项目的前端版本号缓存处理","summary":"静态页面修复后 bump 资源版本，避免浏览器继续读旧 JS/CSS。","thread":"前端线","category":"frontend","status":"current","risk_level":"normal","urgency":"normal","fact_key":"frontend.cache.asset_version","active_fact":true,"tags":["frontend","cache","version"]},
+        {"id":"m004","title":"天气卡整卡跳转到详情页","summary":"天气卡根节点作为链接，不能额外显示重复的入口文字。","thread":"前端线","category":"navigation","status":"current","risk_level":"normal","urgency":"low","fact_key":"weather.card.detail_link","active_fact":true,"tags":["weather-card","navigation","frontend"]},
+        {"id":"m005","title":"旧版按钮文字会造成 UI 重复","summary":"额外的按钮文字让天气卡出现重复入口，修复时应删除旧按钮类。","thread":"前端线","category":"bug","status":"historical","risk_level":"normal","urgency":"low","fact_key":"weather.card.duplicate_label","active_fact":false,"tags":["weather-card","frontend","bug"]},
+        {"id":"m006","title":"PG 连接必须核对 current_database","summary":"每个记忆租户只允许连接显式配置的数据库名，拒绝任何其他数据库。","thread":"安全线","category":"database","status":"current","risk_level":"high","urgency":"high","fact_key":"tenant.pg.allowed_database","active_fact":true,"tags":["pg","isolation","database"]},
+        {"id":"m007","title":"同库不同 schema 不算隔离","summary":"仅在共享数据库里创建独立 schema 不构成强隔离；高风险租户应使用独立数据库。","thread":"安全线","category":"boundary","status":"current","risk_level":"high","urgency":"normal","fact_key":"tenant.pg.schema_is_not_isolation","active_fact":true,"tags":["pg","isolation","boundary"]},
+        {"id":"m008","title":"Y 线前端第一版只展示局部关系","summary":"前端默认只展开当前记忆的一跳关系，二跳必须手动选择，防止图谱噪声放大。","thread":"工程线","category":"mvp","status":"current","risk_level":"normal","urgency":"normal","fact_key":"yline.frontend.local_first","active_fact":true,"tags":["y-axis","frontend","mvp"]},
+        {"id":"m009","title":"冲突边只进入审计，不自动改事实","summary":"contradicts/supports/cause_effect 属于 review 关系，展示给人看，但不默认参与自动扩展。","thread":"工程线","category":"review","status":"current","risk_level":"medium","urgency":"normal","fact_key":"yline.review_edges.no_auto_expand","active_fact":true,"tags":["y-axis","review","safety"]},
+        {"id":"m010","title":"全库星图容易误导","summary":"完整图谱在前端容易制造视觉噪声和错误权威感，MVP 应先做审计图。","thread":"工程线","category":"ux","status":"current","risk_level":"medium","urgency":"low","fact_key":"yline.frontend.audit_not_starfield","active_fact":true,"tags":["y-axis","ux","audit"]}
+      ],
+      "edges": [
+        {"id":"e001","source":"m001","target":"m002","relation_type":"same_issue","strength":0.92,"review_required":false,"source_count":3,"reason":"两条都约束高风险发布的执行与验证闭环。"},
+        {"id":"e002","source":"m002","target":"m003","relation_type":"same_tool","strength":0.62,"review_required":false,"source_count":1,"reason":"都涉及前端上线后的实际行为验证。"},
+        {"id":"e003","source":"m003","target":"m004","relation_type":"same_project","strength":0.88,"review_required":false,"source_count":2,"reason":"同属静态前端修复线。"},
+        {"id":"e004","source":"m004","target":"m005","relation_type":"derived_from","strength":0.76,"review_required":false,"source_count":2,"reason":"当前整卡跳转方案由旧重复按钮问题修复而来。"},
+        {"id":"e005","source":"m006","target":"m007","relation_type":"supports","strength":0.84,"review_required":true,"source_count":2,"reason":"独立数据库名要求支持同库 schema 不算隔离的边界判断。"},
+        {"id":"e006","source":"m006","target":"m001","relation_type":"same_topic","strength":0.58,"review_required":false,"source_count":1,"reason":"都属于高风险操作前置检查。"},
+        {"id":"e007","source":"m008","target":"m009","relation_type":"cause_effect","strength":0.70,"review_required":true,"source_count":1,"reason":"局部展开策略由 review 边不能自动扩展的安全约束导致。"},
+        {"id":"e008","source":"m008","target":"m010","relation_type":"same_issue","strength":0.91,"review_required":false,"source_count":2,"reason":"两条都在限制前端图谱范围，避免全库图噪声。"},
+        {"id":"e009","source":"m009","target":"m010","relation_type":"supports","strength":0.79,"review_required":true,"source_count":1,"reason":"审计优先的边界支持不要做漂亮星空的 UX 决策。"},
+        {"id":"e010","source":"m004","target":"m010","relation_type":"same_topic","strength":0.43,"review_required":false,"source_count":1,"reason":"具体前端修复可作为局部图谱视图的样例。"}
+      ]
+    };
+
+    const REVIEW_TYPES = new Set(["supports", "contradicts", "cause_effect"]);
+    const SAFE_COLORS = {
+      same_issue: "#2e4c4f",
+      same_project: "#63743c",
+      same_tool: "#245e7a",
+      same_event: "#7a6630",
+      same_topic: "#5e6a72",
+      temporal_sequence: "#8a6d3b",
+      derived_from: "#b85b2c",
+      emotional_link: "#8b5c50",
+      in_thread: "#61724a",
+      same_person: "#536e79",
+      in_episode: "#7a5e7b",
+      instance_of: "#6f6752",
+      supports: "#b85b2c",
+      cause_effect: "#9b332c",
+      contradicts: "#9b332c"
+    };
+
+    const state = {
+      graph: structuredClone(DEFAULT_GRAPH),
+      centerId: DEFAULT_GRAPH.meta.seed_id,
+      selectedId: DEFAULT_GRAPH.meta.seed_id,
+      selectedEdgeId: null,
+      enabledTypes: new Set(DEFAULT_GRAPH.edges.map(edge => edge.relation_type)),
+      search: "",
+      showReview: true,
+      showWeak: true
+    };
+
+    const $ = selector => document.querySelector(selector);
+    const svg = $("#graphSvg");
+
+    function nodeMap() {
+      return new Map(state.graph.nodes.map(node => [String(node.id), node]));
+    }
+
+    function edgeKey(edge) {
+      return String(edge.id || `${edge.source}-${edge.target}-${edge.relation_type}`);
+    }
+
+    function isReviewEdge(edge) {
+      return edge.review_required || REVIEW_TYPES.has(edge.relation_type);
+    }
+
+    function visibleEdges() {
+      return state.graph.edges.filter(edge => {
+        if (!state.enabledTypes.has(edge.relation_type)) return false;
+        if (!state.showReview && isReviewEdge(edge)) return false;
+        if (!state.showWeak && Number(edge.strength || 0) < 0.5) return false;
+        return edge.source === state.centerId || edge.target === state.centerId;
+      });
+    }
+
+    function visibleNodes() {
+      const ids = new Set([state.centerId]);
+      for (const edge of visibleEdges()) {
+        ids.add(String(edge.source));
+        ids.add(String(edge.target));
+      }
+      return state.graph.nodes.filter(node => ids.has(String(node.id)));
+    }
+
+    function allRelations() {
+      return [...new Set(state.graph.edges.map(edge => edge.relation_type))].sort();
+    }
+
+    function clipped(text, max = 34) {
+      const value = String(text || "");
+      return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    }
+
+    function riskBadgeClass(value) {
+      if (value === "high") return "danger";
+      if (value === "medium") return "warn";
+      return "";
+    }
+
+    function renderControls() {
+      const centerSelect = $("#centerSelect");
+      centerSelect.innerHTML = state.graph.nodes
+        .map(node => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.title)}</option>`)
+        .join("");
+      centerSelect.value = state.centerId;
+
+      $("#relationChips").innerHTML = allRelations().map(type => {
+        const pressed = state.enabledTypes.has(type);
+        return `<button class="chip" type="button" aria-pressed="${pressed}" data-type="${escapeHtml(type)}">${escapeHtml(type)}</button>`;
+      }).join("");
+
+      $("#showReview").checked = state.showReview;
+      $("#showWeak").checked = state.showWeak;
+      $("#searchInput").value = state.search;
+    }
+
+    function renderNodeList() {
+      const query = state.search.trim().toLowerCase();
+      const list = state.graph.nodes.filter(node => {
+        if (!query) return true;
+        const haystack = [
+          node.title,
+          node.summary,
+          node.fact_key,
+          node.thread,
+          node.category,
+          ...(node.tags || [])
+        ].join(" ").toLowerCase();
+        return haystack.includes(query);
+      });
+      $("#nodeList").innerHTML = list.map(node => `
+        <button class="node-item ${node.id === state.centerId ? "active" : ""}" type="button" data-node="${escapeHtml(node.id)}">
+          <strong>${escapeHtml(node.title)}</strong>
+          <span>${escapeHtml(node.thread)} / ${escapeHtml(node.category)} / ${escapeHtml(node.status)}</span>
+        </button>
+      `).join("") || `<div class="empty">没搜到。不是系统深奥，是你关键词太狠。</div>`;
+    }
+
+    function layoutNodes(nodes, edges, width, height) {
+      const positions = new Map();
+      const center = nodes.find(node => node.id === state.centerId) || nodes[0];
+      const cx = width / 2;
+      const cy = height / 2 + 18;
+      positions.set(String(center.id), { x: cx, y: cy, r: 56, depth: 0 });
+
+      const neighbors = nodes.filter(node => node.id !== center.id);
+      const radius = Math.min(width, height) * 0.33;
+      const start = -Math.PI / 2;
+      neighbors.forEach((node, index) => {
+        const angle = start + (Math.PI * 2 * index / Math.max(neighbors.length, 1));
+        const relation = edges.find(edge => edge.source === node.id || edge.target === node.id);
+        const isReview = relation ? isReviewEdge(relation) : false;
+        positions.set(String(node.id), {
+          x: cx + Math.cos(angle) * radius,
+          y: cy + Math.sin(angle) * radius * 0.78,
+          r: isReview ? 40 : 36,
+          depth: 1
+        });
+      });
+      return positions;
+    }
+
+    function renderGraph() {
+      const nodes = visibleNodes();
+      const edges = visibleEdges();
+      const nodesById = nodeMap();
+      const rect = svg.getBoundingClientRect();
+      const width = Math.max(rect.width || 760, 360);
+      const height = Math.max(rect.height || 680, 520);
+      const positions = layoutNodes(nodes, edges, width, height);
+
+      const edgeMarkup = edges.map(edge => {
+        const source = positions.get(String(edge.source));
+        const target = positions.get(String(edge.target));
+        if (!source || !target) return "";
+        const color = SAFE_COLORS[edge.relation_type] || "#2e4c4f";
+        const review = isReviewEdge(edge);
+        const width = 2 + Number(edge.strength || 0) * 5;
+        const midX = (source.x + target.x) / 2;
+        const midY = (source.y + target.y) / 2;
+        const dash = review ? "7 8" : "";
+        return `
+          <g data-edge="${escapeHtml(edgeKey(edge))}">
+            <line class="edge" x1="${source.x}" y1="${source.y}" x2="${target.x}" y2="${target.y}"
+              stroke="${color}" stroke-width="${width}" stroke-opacity="${review ? 0.65 : 0.48}"
+              stroke-dasharray="${dash}" />
+            <text class="edge-label" x="${midX}" y="${midY - 8}" text-anchor="middle">${escapeHtml(edge.relation_type)} · ${Math.round(edge.strength * 100)}</text>
+          </g>
+        `;
+      }).join("");
+
+      const nodeMarkup = nodes.map(node => {
+        const pos = positions.get(String(node.id));
+        const isCenter = node.id === state.centerId;
+        const isSelected = node.id === state.selectedId;
+        const fill = node.risk_level === "high" ? "#b85b2c" : node.risk_level === "medium" ? "#63743c" : "#2e4c4f";
+        const ring = isSelected ? "#20211d" : "rgba(255, 250, 240, 0.92)";
+        return `
+          <g class="node" data-node="${escapeHtml(node.id)}" transform="translate(${pos.x} ${pos.y})">
+            <circle r="${isCenter ? 58 : pos.r}" fill="${fill}" stroke="${ring}"></circle>
+            <circle r="${isCenter ? 68 : pos.r + 9}" fill="none" stroke="${fill}" stroke-opacity="${isCenter ? 0.2 : 0.12}" stroke-width="2"></circle>
+            <text y="-4" text-anchor="middle">${escapeHtml(clipped(node.title, isCenter ? 18 : 15))}</text>
+            <text class="subtext" y="15" text-anchor="middle">${escapeHtml(node.thread)} · ${escapeHtml(node.status)}</text>
+          </g>
+        `;
+      }).join("");
+
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.innerHTML = `
+        <defs>
+          <pattern id="tinyGrid" width="28" height="28" patternUnits="userSpaceOnUse">
+            <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(32,33,29,0.06)" stroke-width="1"></path>
+          </pattern>
+        </defs>
+        <rect width="${width}" height="${height}" fill="url(#tinyGrid)" opacity="0.8"></rect>
+        ${edgeMarkup}
+        ${nodeMarkup}
+      `;
+
+      $("#metricNodes").textContent = nodes.length;
+      $("#metricEdges").textContent = edges.length;
+      $("#metricReview").textContent = edges.filter(isReviewEdge).length;
+      $("#graphTitle").textContent = `seed: ${nodesById.get(state.centerId)?.title || state.centerId}`;
+    }
+
+    function renderDetail() {
+      const nodesById = nodeMap();
+      const selectedNode = nodesById.get(state.selectedId);
+      const selectedEdge = state.graph.edges.find(edge => edgeKey(edge) === state.selectedEdgeId);
+      const related = state.graph.edges.filter(edge => edge.source === state.selectedId || edge.target === state.selectedId);
+
+      if (selectedEdge) {
+        const source = nodesById.get(String(selectedEdge.source));
+        const target = nodesById.get(String(selectedEdge.target));
+        $("#detailPane").innerHTML = `
+          <div class="detail-card">
+            <div class="badges">
+              <span class="badge ${isReviewEdge(selectedEdge) ? "danger" : ""}">${escapeHtml(selectedEdge.relation_type)}</span>
+              <span class="badge">strength ${Math.round(selectedEdge.strength * 100)}</span>
+              <span class="badge">sources ${selectedEdge.source_count || 1}</span>
+            </div>
+            <h2>${escapeHtml(source?.title || selectedEdge.source)} → ${escapeHtml(target?.title || selectedEdge.target)}</h2>
+            <p>${escapeHtml(selectedEdge.reason || "缺 reason。先别进生产，漂亮线条不能当证据。")}</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (!selectedNode) {
+        $("#detailPane").innerHTML = `<div class="empty">没有选中节点。</div>`;
+        return;
+      }
+
+      $("#detailPane").innerHTML = `
+        <div class="detail-card">
+          <h2>${escapeHtml(selectedNode.title)}</h2>
+          <p>${escapeHtml(selectedNode.summary || "")}</p>
+          <div class="badges">
+            <span class="badge">${escapeHtml(selectedNode.thread)}</span>
+            <span class="badge">${escapeHtml(selectedNode.category)}</span>
+            <span class="badge ${riskBadgeClass(selectedNode.risk_level)}">risk ${escapeHtml(selectedNode.risk_level)}</span>
+            <span class="badge ${selectedNode.status !== "current" ? "warn" : ""}">${escapeHtml(selectedNode.status)}</span>
+          </div>
+        </div>
+        <div class="detail-card">
+          <p><strong>fact_key</strong><br>${escapeHtml(selectedNode.fact_key || "none")}</p>
+          <p><strong>tags</strong><br>${escapeHtml((selectedNode.tags || []).join(", ") || "none")}</p>
+        </div>
+        <div class="edge-list">
+          ${related.map(edgeCard).join("") || `<div class="empty">这个节点暂时没有关系边。</div>`}
+        </div>
+      `;
+    }
+
+    function edgeCard(edge) {
+      const nodesById = nodeMap();
+      const otherId = edge.source === state.selectedId ? edge.target : edge.source;
+      const other = nodesById.get(String(otherId));
+      return `
+        <button class="edge-card ${isReviewEdge(edge) ? "review" : ""}" type="button" data-edge="${escapeHtml(edgeKey(edge))}">
+          <strong>
+            <span>${escapeHtml(edge.relation_type)}</span>
+            <span>${Math.round(edge.strength * 100)}</span>
+          </strong>
+          <p>${escapeHtml(other?.title || otherId)}</p>
+          <p>${escapeHtml(edge.reason || "缺 reason")}</p>
+        </button>
+      `;
+    }
+
+    function renderReview() {
+      const reviewEdges = state.graph.edges.filter(isReviewEdge);
+      $("#reviewList").innerHTML = reviewEdges.map(edge => {
+        const nodesById = nodeMap();
+        const source = nodesById.get(String(edge.source));
+        const target = nodesById.get(String(edge.target));
+        return `
+          <button class="edge-card review" type="button" data-edge="${escapeHtml(edgeKey(edge))}">
+            <strong>
+              <span>${escapeHtml(edge.relation_type)}</span>
+              <span>${Math.round(edge.strength * 100)}</span>
+            </strong>
+            <p>${escapeHtml(source?.title || edge.source)} → ${escapeHtml(target?.title || edge.target)}</p>
+            <p>${escapeHtml(edge.reason || "缺 reason")}</p>
+          </button>
+        `;
+      }).join("") || `<div class="empty">当前没有 review 边。好事，但别得意，图谱最会装乖。</div>`;
+    }
+
+    function renderAll() {
+      renderControls();
+      renderNodeList();
+      renderGraph();
+      renderDetail();
+      renderReview();
+      $("#metricFocus").textContent = "1-hop";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function normalizeGraph(graph) {
+      if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+        throw new Error("JSON must include nodes[] and edges[].");
+      }
+      const nodeIds = new Set(graph.nodes.map(node => String(node.id)));
+      graph.nodes = graph.nodes.map(node => ({ ...node, id: String(node.id), tags: node.tags || [] }));
+      graph.edges = graph.edges
+        .filter(edge => nodeIds.has(String(edge.source)) && nodeIds.has(String(edge.target)))
+        .map(edge => ({
+          ...edge,
+          id: String(edge.id || `${edge.source}-${edge.target}-${edge.relation_type}`),
+          source: String(edge.source),
+          target: String(edge.target),
+          strength: Number(edge.strength ?? 0.5),
+          review_required: Boolean(edge.review_required || REVIEW_TYPES.has(edge.relation_type))
+        }));
+      graph.meta = graph.meta || {};
+      graph.meta.seed_id = String(graph.meta.seed_id || graph.nodes[0]?.id || "");
+      return graph;
+    }
+
+    document.addEventListener("click", event => {
+      const chip = event.target.closest("[data-type]");
+      if (chip) {
+        const type = chip.dataset.type;
+        if (state.enabledTypes.has(type)) state.enabledTypes.delete(type);
+        else state.enabledTypes.add(type);
+        renderAll();
+        return;
+      }
+
+      const nodeButton = event.target.closest("[data-node]");
+      if (nodeButton) {
+        state.centerId = nodeButton.dataset.node;
+        state.selectedId = nodeButton.dataset.node;
+        state.selectedEdgeId = null;
+        renderAll();
+        return;
+      }
+
+      const edgeButton = event.target.closest("[data-edge]");
+      if (edgeButton) {
+        state.selectedEdgeId = edgeButton.dataset.edge;
+        renderDetail();
+      }
+    });
+
+    $("#centerSelect").addEventListener("change", event => {
+      state.centerId = event.target.value;
+      state.selectedId = event.target.value;
+      state.selectedEdgeId = null;
+      renderAll();
+    });
+
+    $("#searchInput").addEventListener("input", event => {
+      state.search = event.target.value;
+      renderNodeList();
+    });
+
+    $("#showReview").addEventListener("change", event => {
+      state.showReview = event.target.checked;
+      renderAll();
+    });
+
+    $("#showWeak").addEventListener("change", event => {
+      state.showWeak = event.target.checked;
+      renderAll();
+    });
+
+    $("#resetButton").addEventListener("click", () => {
+      state.graph = structuredClone(DEFAULT_GRAPH);
+      state.centerId = DEFAULT_GRAPH.meta.seed_id;
+      state.selectedId = state.centerId;
+      state.selectedEdgeId = null;
+      state.enabledTypes = new Set(state.graph.edges.map(edge => edge.relation_type));
+      renderAll();
+    });
+
+    $("#fileInput").addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const graph = normalizeGraph(JSON.parse(await file.text()));
+        state.graph = graph;
+        state.centerId = graph.meta.seed_id;
+        state.selectedId = state.centerId;
+        state.selectedEdgeId = null;
+        state.enabledTypes = new Set(graph.edges.map(edge => edge.relation_type));
+        renderAll();
+      } catch (error) {
+        alert(`载入失败：${error.message}`);
+      } finally {
+        event.target.value = "";
+      }
+    });
+
+    window.addEventListener("resize", () => renderGraph());
+    state.graph = normalizeGraph(state.graph);
+    renderAll();
+  </script>
+</body>
+</html>

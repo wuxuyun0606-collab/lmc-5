@@ -1,0 +1,242 @@
+{
+  "meta": {
+    "title": "LMC-5 Y-Line MVP Sample",
+    "seed_id": "m001",
+    "generated_at": "2026-07-01",
+    "notes": "Small audit-first graph sample. Review edges are visible but do not auto-expand."
+  },
+  "nodes": [
+    {
+      "id": "m001",
+      "title": "生产发布前必须准备回滚与影响面检查",
+      "summary": "高风险发布前先确认回滚路径、影响范围、验证指标，再执行变更。",
+      "thread": "安全线",
+      "category": "policy",
+      "status": "current",
+      "risk_level": "high",
+      "urgency": "high",
+      "fact_key": "deploy.risk.rollback_policy",
+      "active_fact": true,
+      "tags": ["deployment", "rollback", "safety"]
+    },
+    {
+      "id": "m002",
+      "title": "发布后验证日志、指标和用户可见行为",
+      "summary": "高风险变更完成后，用日志、指标和实际页面行为三方验证，不只看命令成功。",
+      "thread": "工程线",
+      "category": "checklist",
+      "status": "current",
+      "risk_level": "medium",
+      "urgency": "normal",
+      "fact_key": "deploy.verification.checklist",
+      "active_fact": true,
+      "tags": ["verification", "logs", "metrics"]
+    },
+    {
+      "id": "m003",
+      "title": "同一项目的前端版本号缓存处理",
+      "summary": "静态页面修复后 bump 资源版本，避免浏览器继续读旧 JS/CSS。",
+      "thread": "前端线",
+      "category": "frontend",
+      "status": "current",
+      "risk_level": "normal",
+      "urgency": "normal",
+      "fact_key": "frontend.cache.asset_version",
+      "active_fact": true,
+      "tags": ["frontend", "cache", "version"]
+    },
+    {
+      "id": "m004",
+      "title": "天气卡整卡跳转到详情页",
+      "summary": "天气卡根节点作为链接，不能额外显示重复的入口文字。",
+      "thread": "前端线",
+      "category": "navigation",
+      "status": "current",
+      "risk_level": "normal",
+      "urgency": "low",
+      "fact_key": "weather.card.detail_link",
+      "active_fact": true,
+      "tags": ["weather-card", "navigation", "frontend"]
+    },
+    {
+      "id": "m005",
+      "title": "旧版按钮文字会造成 UI 重复",
+      "summary": "额外的按钮文字让天气卡出现重复入口，修复时应删除旧按钮类。",
+      "thread": "前端线",
+      "category": "bug",
+      "status": "historical",
+      "risk_level": "normal",
+      "urgency": "low",
+      "fact_key": "weather.card.duplicate_label",
+      "active_fact": false,
+      "tags": ["weather-card", "frontend", "bug"]
+    },
+    {
+      "id": "m006",
+      "title": "PG 连接必须核对 current_database",
+      "summary": "每个记忆租户只允许连接显式配置的数据库名，拒绝任何其他数据库。",
+      "thread": "安全线",
+      "category": "database",
+      "status": "current",
+      "risk_level": "high",
+      "urgency": "high",
+      "fact_key": "tenant.pg.allowed_database",
+      "active_fact": true,
+      "tags": ["pg", "isolation", "database"]
+    },
+    {
+      "id": "m007",
+      "title": "同库不同 schema 不算隔离",
+      "summary": "仅在共享数据库里创建独立 schema 不构成强隔离；高风险租户应使用独立数据库。",
+      "thread": "安全线",
+      "category": "boundary",
+      "status": "current",
+      "risk_level": "high",
+      "urgency": "normal",
+      "fact_key": "tenant.pg.schema_is_not_isolation",
+      "active_fact": true,
+      "tags": ["pg", "isolation", "boundary"]
+    },
+    {
+      "id": "m008",
+      "title": "Y 线前端第一版只展示局部关系",
+      "summary": "前端默认只展开当前记忆的一跳关系，二跳必须手动选择，防止图谱噪声放大。",
+      "thread": "工程线",
+      "category": "mvp",
+      "status": "current",
+      "risk_level": "normal",
+      "urgency": "normal",
+      "fact_key": "yline.frontend.local_first",
+      "active_fact": true,
+      "tags": ["y-axis", "frontend", "mvp"]
+    },
+    {
+      "id": "m009",
+      "title": "冲突边只进入审计，不自动改事实",
+      "summary": "contradicts/supports/cause_effect 属于 review 关系，展示给人看，但不默认参与自动扩展。",
+      "thread": "工程线",
+      "category": "review",
+      "status": "current",
+      "risk_level": "medium",
+      "urgency": "normal",
+      "fact_key": "yline.review_edges.no_auto_expand",
+      "active_fact": true,
+      "tags": ["y-axis", "review", "safety"]
+    },
+    {
+      "id": "m010",
+      "title": "全库星图容易误导",
+      "summary": "完整图谱在前端容易制造视觉噪声和错误权威感，MVP 应先做审计图。",
+      "thread": "工程线",
+      "category": "ux",
+      "status": "current",
+      "risk_level": "medium",
+      "urgency": "low",
+      "fact_key": "yline.frontend.audit_not_starfield",
+      "active_fact": true,
+      "tags": ["y-axis", "ux", "audit"]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e001",
+      "source": "m001",
+      "target": "m002",
+      "relation_type": "same_issue",
+      "strength": 0.92,
+      "review_required": false,
+      "source_count": 3,
+      "reason": "两条都约束高风险发布的执行与验证闭环。"
+    },
+    {
+      "id": "e002",
+      "source": "m002",
+      "target": "m003",
+      "relation_type": "same_tool",
+      "strength": 0.62,
+      "review_required": false,
+      "source_count": 1,
+      "reason": "都涉及前端上线后的实际行为验证。"
+    },
+    {
+      "id": "e003",
+      "source": "m003",
+      "target": "m004",
+      "relation_type": "same_project",
+      "strength": 0.88,
+      "review_required": false,
+      "source_count": 2,
+      "reason": "同属静态前端修复线。"
+    },
+    {
+      "id": "e004",
+      "source": "m004",
+      "target": "m005",
+      "relation_type": "derived_from",
+      "strength": 0.76,
+      "review_required": false,
+      "source_count": 2,
+      "reason": "当前整卡跳转方案由旧重复按钮问题修复而来。"
+    },
+    {
+      "id": "e005",
+      "source": "m006",
+      "target": "m007",
+      "relation_type": "supports",
+      "strength": 0.84,
+      "review_required": true,
+      "source_count": 2,
+      "reason": "独立数据库名要求支持同库 schema 不算隔离的边界判断。"
+    },
+    {
+      "id": "e006",
+      "source": "m006",
+      "target": "m001",
+      "relation_type": "same_topic",
+      "strength": 0.58,
+      "review_required": false,
+      "source_count": 1,
+      "reason": "都属于高风险操作前置检查。"
+    },
+    {
+      "id": "e007",
+      "source": "m008",
+      "target": "m009",
+      "relation_type": "cause_effect",
+      "strength": 0.7,
+      "review_required": true,
+      "source_count": 1,
+      "reason": "局部展开策略由 review 边不能自动扩展的安全约束导致。"
+    },
+    {
+      "id": "e008",
+      "source": "m008",
+      "target": "m010",
+      "relation_type": "same_issue",
+      "strength": 0.91,
+      "review_required": false,
+      "source_count": 2,
+      "reason": "两条都在限制前端图谱范围，避免全库图噪声。"
+    },
+    {
+      "id": "e009",
+      "source": "m009",
+      "target": "m010",
+      "relation_type": "supports",
+      "strength": 0.79,
+      "review_required": true,
+      "source_count": 1,
+      "reason": "审计优先的边界支持不要做漂亮星空的 UX 决策。"
+    },
+    {
+      "id": "e010",
+      "source": "m004",
+      "target": "m010",
+      "relation_type": "same_topic",
+      "strength": 0.43,
+      "review_required": false,
+      "source_count": 1,
+      "reason": "具体前端修复可作为局部图谱视图的样例。"
+    }
+  ]
+}
