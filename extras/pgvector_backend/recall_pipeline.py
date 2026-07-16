@@ -1088,6 +1088,7 @@ def raw_events_search_adapter(
     table: str = "lmc5_raw_events",
     rank_normalizer: float = 12.0,
     recent_days: int = 90,
+    exclude_session_id: Optional[str] = None,
 ):
     """三层检索的兜底层 · 查 raw events journal 的 tsvector。
 
@@ -1101,6 +1102,15 @@ def raw_events_search_adapter(
     需要 lmc5_raw_events 表上有 content_tsv 列 + GIN 索引（schema.sql 提供）。
     """
     def call(query: str, top_k: int) -> list[RecallHit]:
+        exclude_clause = (
+            "  AND session_id IS DISTINCT FROM %s "
+            if exclude_session_id is not None
+            else ""
+        )
+        params = [query, query, str(recent_days)]
+        if exclude_session_id is not None:
+            params.append(exclude_session_id)
+        params.append(top_k)
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, role, content, "
@@ -1109,8 +1119,9 @@ def raw_events_search_adapter(
                 f"FROM {table} "
                 f"WHERE content_tsv @@ plainto_tsquery('simple', %s) "
                 f"  AND created_at >= NOW() - (%s || ' days')::interval "
+                f"{exclude_clause}"
                 f"ORDER BY rank DESC, created_at DESC LIMIT %s",
-                (query, query, str(recent_days), top_k),
+                tuple(params),
             )
             rows = cur.fetchall()
         return [
@@ -1136,6 +1147,7 @@ def literal_raw_events_search_adapter(
     max_content_chars: int = 240,
     include_neighbors: bool = True,
     neighbor_radius: int = 1,
+    exclude_session_id: Optional[str] = None,
 ):
     """Independent exact/literal search over raw events as source-neighborhood.
 
@@ -1152,14 +1164,24 @@ def literal_raw_events_search_adapter(
         if not terms:
             return []
         patterns = [f"%{term}%" for term in terms]
+        exclude_clause = (
+            "  AND session_id IS DISTINCT FROM %s "
+            if exclude_session_id is not None
+            else ""
+        )
+        params = [patterns, str(recent_days)]
+        if exclude_session_id is not None:
+            params.append(exclude_session_id)
+        params.append(top_k)
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, role, content, created_at, session_id "
                 f"FROM {table} "
                 f"WHERE content ILIKE ANY(%s) "
                 f"  AND created_at >= NOW() - (%s || ' days')::interval "
+                f"{exclude_clause}"
                 f"ORDER BY created_at DESC LIMIT %s",
-                (patterns, str(recent_days), top_k),
+                tuple(params),
             )
             rows = cur.fetchall()
 
