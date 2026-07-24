@@ -38,6 +38,13 @@
   tail-collapse trade-off.
 
 ### Fixed
+- **Cross-turn recall repetition.** `RecallPipeline` can now accept a
+  session-scoped injection history and filter `namespace+source_id` values
+  already injected on earlier turns before rerank/top-k, so novel candidates
+  backfill instead of the same winner consuming a context slot repeatedly.
+  The reference `UserPromptSubmit` hook enables a hash-only file history by
+  default, passes the runtime `session_id`, isolates new sessions, and expires
+  stale state after two days. Per-call channel merge/dedup remains unchanged.
 - **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
   decides *how* to score) but forgot the layer that decides *which memories
   should be scored at all*. Without it, `night_dream` never invokes the

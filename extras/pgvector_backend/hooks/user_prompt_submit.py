@@ -53,6 +53,15 @@ def extract_prompt(event: dict) -> str:
     return json.dumps(event, ensure_ascii=False)[:2000]
 
 
+def extract_session_id(event: dict) -> str:
+    """Return the runtime session id without inventing a global fallback bucket."""
+    for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return os.environ.get("CLAUDE_SESSION_ID", "").strip()
+
+
 # === 拼接情绪上下文（Russell 联想）===
 
 def detect_user_emotion(text: str) -> tuple[float, float] | None:
@@ -126,6 +135,7 @@ def build_pipeline_from_env():
     from .. import vector_pgvector
     from .. import embedders as emb_module
     from .. import rerankers as rerank_module
+    from ..recall_history import history_from_env
     import psycopg2
 
     dsn = os.environ["LMC5_PG_DSN"]
@@ -211,6 +221,7 @@ def build_pipeline_from_env():
         emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,
         rerank=rerank,
+        injection_history=history_from_env(),
         **fusion_settings,
     )
 
@@ -227,6 +238,7 @@ def main() -> int:
         event = {}
 
     prompt = extract_prompt(event)
+    session_id = extract_session_id(event)
     if is_trivial(prompt):
         # 短回复跳过完整召回——直接退出，不注入
         return 0
@@ -238,7 +250,7 @@ def main() -> int:
         return 0
 
     try:
-        result = pipeline.recall(prompt)
+        result = pipeline.recall(prompt, session_id=session_id)
     except Exception as e:
         log.error("recall failed: %s", e)
         return 0

@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from .recall_history import RecallInjectionHistory, recall_identity
+
 
 _LITERAL_TRIGGER = r"(?:搜一下|查一下|找一下|搜索|检索|搜|查|找|记得|说过|提到|关于|叫)"
 _GENERIC_CJK_LITERAL_STOPS = (
@@ -330,6 +332,7 @@ class RecallPipeline:
         output_mode: str = "flat",
         source_neighborhood_budget_chars: int = 600,
         fallback_archive_budget_chars: int = 360,
+        injection_history: Optional[RecallInjectionHistory] = None,
     ):
         """
         完整管线：Query Expansion → 三层检索 + 兜底 → 合并去重 → OB 评分 → 精排
@@ -387,6 +390,9 @@ class RecallPipeline:
             output_mode: flat=旧输出；layered=额外生成按证据角色分开的召回结构和分层注入文本。
             source_neighborhood_budget_chars: layered 模式下原文邻域层的字符预算。
             fallback_archive_budget_chars: layered 模式下兜底档案层的字符预算。
+            injection_history: 可选 session 注入历史。启用后，同一 session 早先轮次
+                               已注入的 namespace+source_id 会在本轮精排前过滤，
+                               让后备候选补位。新 session 不受旧 session 影响。
         """
         for name, fn in (
             ("vector_search", vector_search),
@@ -417,6 +423,14 @@ class RecallPipeline:
         self.emotion_resonate = emotion_resonate
         self.spontaneous = spontaneous
         self.rerank = rerank
+        if injection_history is not None and not (
+            hasattr(injection_history, "seen") and hasattr(injection_history, "mark")
+        ):
+            raise TypeError(
+                "RecallPipeline: injection_history must provide seen(session_id, keys) "
+                "and mark(session_id, keys)"
+            )
+        self.injection_history = injection_history
 
         self.vector_top_k = vector_top_k
         self.fts_top_k = fts_top_k
@@ -483,6 +497,10 @@ class RecallPipeline:
         if hit.channel == "raw_chunk":
             return ("raw_chunk", int(hit.source_id))
         return ("curated", int(hit.source_id))
+
+    def _history_key(self, hit: RecallHit) -> str:
+        namespace, source_id = self._dedup_key(hit)
+        return recall_identity(namespace, source_id)
 
     def _apply_score_fusion(
         self,
@@ -799,11 +817,13 @@ class RecallPipeline:
         self,
         query: str,
         seed_ids: Optional[list[int]] = None,
+        session_id: Optional[str] = None,
     ) -> RecallResult:
         """主入口。给一段用户消息，返回 RecallResult。
 
         seed_ids 可选——首次召回会从 vector hits 自动算 seed 给 graph_expand 用，
-        但调用方可以显式传（例如沿用上一轮的 hits）。
+        但调用方可以显式传（例如沿用上一轮的 hits）。session_id 与
+        injection_history 同时提供时，会过滤本 session 早先轮次已经注入的命中。
         """
         import logging
         log = logging.getLogger("lmc5.recall_pipeline")
@@ -987,6 +1007,29 @@ class RecallPipeline:
         merged = self._merge_dedup(channel_results)
         channel_counts = {name: len(hits) for name, hits in channel_results}
 
+        # Per-call merge/dedup above handles one source found by several channels.
+        # Session history handles a different failure mode: the same winner being
+        # injected again on later turns and consuming a scarce context slot. Filter
+        # before rerank/top-k so lower-ranked novel candidates can backfill.
+        history_trace = {
+            "enabled": self.injection_history is not None,
+            "session_id_present": bool(session_id),
+            "suppressed": 0,
+            "marked": 0,
+            "status": "disabled" if self.injection_history is None else "idle",
+        }
+        if self.injection_history is not None and session_id and merged:
+            keys = [self._history_key(hit) for hit in merged]
+            try:
+                seen = self.injection_history.seen(str(session_id), keys)
+                if seen:
+                    merged = [hit for hit in merged if self._history_key(hit) not in seen]
+                history_trace["suppressed"] = len(seen)
+                history_trace["status"] = "filtered"
+            except Exception as e:
+                log.warning("recall: session injection history read failed: %s", e)
+                history_trace["status"] = "read_error_fail_open"
+
         # 6. rerank（可选）
         if self.rerank is not None and merged:
             try:
@@ -1006,6 +1049,17 @@ class RecallPipeline:
             hit.metadata["injected"] = True
             hit.metadata["rank"] = rank
 
+        if self.injection_history is not None and session_id and merged:
+            try:
+                marked_keys = [self._history_key(hit) for hit in merged]
+                self.injection_history.mark(str(session_id), marked_keys)
+                history_trace["marked"] = len(marked_keys)
+                if history_trace["status"] == "idle":
+                    history_trace["status"] = "marked"
+            except Exception as e:
+                log.warning("recall: session injection history write failed: %s", e)
+                history_trace["status"] = "write_error_fail_open"
+
         layers = self._build_layered_output(merged) if self.output_mode == "layered" else {}
         injection_text = (
             self._build_layered_injection_text(layers)
@@ -1014,6 +1068,7 @@ class RecallPipeline:
         )
         cascade_trace["channels_used"] = list(channels_used)
         cascade_trace["output_mode"] = self.output_mode
+        cascade_trace["session_history"] = history_trace
         trace = self._build_trace(query, queries, channels_used, channel_counts, merged, cascade_trace)
         return RecallResult(
             hits=merged,

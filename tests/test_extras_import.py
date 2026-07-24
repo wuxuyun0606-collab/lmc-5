@@ -41,6 +41,7 @@ PURE_MODULES = [
     "extras.pgvector_backend.patrol",
     "extras.pgvector_backend.perception",
     "extras.pgvector_backend.recall_pipeline",
+    "extras.pgvector_backend.recall_history",
     "extras.pgvector_backend.e_axis_scorer",
     "extras.pgvector_backend.e_axis_trigger",
     "extras.pgvector_backend.embedders",

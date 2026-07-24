@@ -81,6 +81,14 @@ The hook routes the prompt through `RecallPipeline.recall()` — see
 the next section — and writes the resulting injection text to stdout.
 Claude Code attaches it as additional context for that single turn.
 
+The reference hook passes Claude Code's `session_id` and wires a hash-only
+`JsonFileRecallHistory`. Per-call dedup still merges one source found by several
+channels; session history handles the next boundary: a source injected on an
+earlier turn of this active session is filtered before rerank/top-k, allowing a
+novel lower-ranked candidate to backfill. History is isolated by session and
+expires after two days, so it does not turn "seen once" into permanent amnesia.
+Set `LMC5_SESSION_RECALL_DEDUP=0` to opt out.
+
 Trivial messages (`嗯`, `好的`, `ok`, single punctuation) skip the
 recall pipeline entirely — running full multi-channel recall on
 "ok" is wasted compute.

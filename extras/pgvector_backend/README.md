@@ -81,6 +81,7 @@ yourself.
 | `heartbeat_detector.py` | new — the missing "what to save" layer for persona | Detects heartbeat moments (intimacy / physical reactions / nickname shifts) and emotional fragments (breakdown / crying / late-night emo / self-denial) from conversation chunks. Keyword gate (CN+EN bilingual) + optional LLM confirmation. Outputs detector candidates only; convert with `to_hippocampus_candidate_dict()` and feed hippocampus/NightDream. Do **not** directly insert detector raw text into curated memories. |
 | `heartbeat_trigger.py` | new — real-time heartbeat detection for hooks | Per-message keyword gate with a default 10-turn reminder throttle. Injects a prompt into additionalContext only when a matched heartbeat signal is outside the throttle window. Optional scene_lookup surfaces the last similar heartbeat. The AI decides whether to save — trigger ≠ auto-store. |
 | `recall_pipeline.py` | new — closes the "store-to-conversation" gap | Full pipeline: optional Query Expansion (LLM → 2-4 search angles) → three-tier cascade (vector → curated FTS → raw-events FTS) → three independent channels (Y-graph 2-hop / Russell emotion / spontaneous) → merge/dedup → optional rerank. Includes `query_expand_adapter` helper for DeepSeek/any LLM. |
+| `recall_history.py` | session-level injection dedup | Remembers `namespace+source_id` values already injected on earlier turns of the active session. File mode stores hashes only and works across per-turn hook subprocesses; in-memory mode is available for long-lived services/tests. |
 | `perception.py` | new | Spontaneous-recall scheduler. Weighted random over high-vitality memories with a deliberate drift fraction, plus time-of-day shaping (night-emotional vs work-factual boost). Writes a JSON cache that the SessionStart and per-turn hooks read. |
 | `hooks/session_start.py` | new — Claude Code hook | Boot-time additionalContext: identity + current facts + recent narrative + open threads + spontaneous-recall surface. |
 | `hooks/user_prompt_submit.py` | new — Claude Code hook | Per-turn additionalContext: routes the prompt through `RecallPipeline.recall()`. Skips trivial messages. Attaches user-emotion coordinate as metadata. |
@@ -151,6 +152,15 @@ return a four-section `RecallResult.layers`: `main_recall` (authority),
 `fallback_archive` (last-resort raw/cold archive evidence).
 `flat` is still the default; old consumers do not need to know this feature
 exists until they grow up and ask for a map.
+
+The reference `UserPromptSubmit` hook also enables **session-scoped injection
+history** by default. This is separate from the merge/dedup inside one recall
+call: after memory `curated:42` has been injected once, later turns in the same
+session filter it before rerank/top-k so a lower-ranked novel candidate can
+fill the slot. A different session may recall `curated:42` again. The default
+file state contains hashes only and expires after two days. Set
+`LMC5_SESSION_RECALL_DEDUP=0` to disable it, or use
+`LMC5_SESSION_RECALL_STATE_DIR` to choose a different state directory.
 
 `LMC5_COLD_ARCHIVE_FALLBACK=1` optionally wires `lmc5_cold_storage` as the cold
 box. The pipeline only opens it when PG/curated vector, curated FTS, raw-events,
