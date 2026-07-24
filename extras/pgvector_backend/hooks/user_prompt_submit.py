@@ -135,8 +135,14 @@ def build_pipeline_from_env():
     from .. import vector_pgvector
     from .. import embedders as emb_module
     from .. import rerankers as rerank_module
-    from ..recall_history import history_from_env
     import psycopg2
+
+    try:
+        from ..recall_history import history_from_env
+        injection_history = history_from_env()
+    except Exception as e:
+        injection_history = None
+        log.warning("session recall history unavailable; continuing without it: %s", e)
 
     dsn = os.environ["LMC5_PG_DSN"]
     pg = psycopg2.connect(dsn)
@@ -208,6 +214,14 @@ def build_pipeline_from_env():
     if enable_cold_archive in {"1", "true", "on", "yes"}:
         cold_archive_search = rp_module.cold_archive_search_adapter(pg)
 
+    enable_content_dedup = (
+        os.environ.get("LMC5_RECALL_CONTENT_DEDUP", "1").strip().lower()
+    )
+    content_fingerprint = (
+        None
+        if enable_content_dedup in {"0", "false", "off", "no"}
+        else rp_module.default_content_fingerprint
+    )
     fusion_settings = recall_fusion_settings_from_env()
 
     return rp_module.RecallPipeline(
@@ -221,7 +235,8 @@ def build_pipeline_from_env():
         emotion_resonate=rp_module.emotion_resonate_adapter(pg),
         spontaneous=spontaneous,
         rerank=rerank,
-        injection_history=history_from_env(),
+        injection_history=injection_history,
+        content_fingerprint=content_fingerprint,
         **fusion_settings,
     )
 

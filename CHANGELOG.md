@@ -38,13 +38,21 @@
   tail-collapse trade-off.
 
 ### Fixed
+- **Same-turn duplicate-content recall.** Recall now has a default content
+  fingerprint pass after id-level channel fusion and before rerank/top-k.
+  Copies with different ids but the same normalized body share one slot,
+  including a common `knowledge_base`-prefixed vs unprefixed split. Known
+  source labels are stripped only at the beginning, digits remain significant,
+  duplicate rows do not inflate fusion score, and fingerprint failures fail
+  open. Pass `content_fingerprint=None` or set
+  `LMC5_RECALL_CONTENT_DEDUP=0` in the reference hook to opt out.
 - **Cross-turn recall repetition.** `RecallPipeline` can now accept a
   session-scoped injection history and filter `namespace+source_id` values
   already injected on earlier turns before rerank/top-k, so novel candidates
   backfill instead of the same winner consuming a context slot repeatedly.
   The reference `UserPromptSubmit` hook enables a hash-only file history by
   default, passes the runtime `session_id`, isolates new sessions, and expires
-  stale state after two days. Per-call channel merge/dedup remains unchanged.
+  stale state after two days.
 - **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
   decides *how* to score) but forgot the layer that decides *which memories
   should be scored at all*. Without it, `night_dream` never invokes the

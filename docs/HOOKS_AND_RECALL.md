@@ -212,7 +212,19 @@ previous stage's best score is too low.
    - This is a small SessionEnd → nightly hippocampus bridge. Keep top-K at 1
      and injected content short. It is not a new long-term memory layer.
    - Delete/digest these temporary vectors after consolidation/hippocampus has
-     processed the session.
+   processed the session.
+
+3d. **Same-turn content dedup**
+   - After channel fusion has merged matching `namespace+source_id` values,
+     `RecallPipeline` fingerprints the normalized body so content-identical
+     rows with different ids consume only one final slot.
+   - Leading transport labels such as `[knowledge_base]` are ignored; numbers
+     are not. The higher-ranked copy survives without duplicate score
+     inflation, while its channel diagnostics are retained.
+   - The default hook enables this pass. Set
+     `LMC5_RECALL_CONTENT_DEDUP=0`, or construct the pipeline with
+     `content_fingerprint=None`, when distinct same-body records must remain
+     visible.
 
 ### The independent channels
 

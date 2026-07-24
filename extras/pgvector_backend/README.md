@@ -162,6 +162,15 @@ file state contains hashes only and expires after two days. Set
 `LMC5_SESSION_RECALL_DEDUP=0` to disable it, or use
 `LMC5_SESSION_RECALL_STATE_DIR` to choose a different state directory.
 
+Inside a single recall call, the pipeline also performs **content-level
+deduplication** after its existing `namespace+source_id` merge. This closes the
+case where two stores contain the same memory under different ids, or one copy
+has a leading source label such as `[knowledge_base]`. The higher-scored copy
+wins, channels and score diagnostics are merged, and the duplicate does not
+inflate the fused score. Digits remain significant. Pass
+`content_fingerprint=None` to `RecallPipeline`, or set
+`LMC5_RECALL_CONTENT_DEDUP=0` for the reference hook, to preserve every copy.
+
 `LMC5_COLD_ARCHIVE_FALLBACK=1` optionally wires `lmc5_cold_storage` as the cold
 box. The pipeline only opens it when PG/curated vector, curated FTS, raw-events,
 and literal/source-neighborhood hits are all empty. If it surfaces, treat it as

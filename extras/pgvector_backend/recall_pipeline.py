@@ -19,10 +19,21 @@
 """
 from __future__ import annotations
 
+import hashlib
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from .recall_history import RecallInjectionHistory, recall_identity
+try:
+    from .recall_history import RecallInjectionHistory, recall_identity
+except Exception:
+    # Session history is an optional repeat-suppression guardrail. A partial
+    # deployment must not make the entire recall pipeline unimportable.
+    RecallInjectionHistory = Any
+
+    def recall_identity(namespace: str, source_id: int) -> str:
+        return f"{namespace}:{source_id}"
 
 
 _LITERAL_TRIGGER = r"(?:搜一下|查一下|找一下|搜索|检索|搜|查|找|记得|说过|提到|关于|叫)"
@@ -55,6 +66,15 @@ _DEFAULT_CHANNEL_WEIGHTS = {
     "perception": 0.6,
 }
 _SCORE_FUSIONS = {"raw", "minmax", "rrf"}
+_CONTENT_SOURCE_PREFIX_RE = re.compile(
+    r"""^\s*(?:
+        \[(?:knowledge[_\s-]?base|pgvector|pg[_\s-]?fts|vector|fts|imprint|sqlite)\]
+        |
+        (?:knowledge[_\s-]?base|pgvector|pg[_\s-]?fts|vector|fts|imprint|sqlite)
+        (?:\s*[:：|/]\s*|\s+)
+    )+""",
+    re.IGNORECASE | re.VERBOSE,
+)
 _KELIN_216_RUNTIME_CONTRACT = {
     "reference": "kelin_216_runtime_audit_20260706",
     "invariants": [
@@ -279,6 +299,24 @@ class RecallHit:
     metadata: dict = field(default_factory=dict)
 
 
+def default_content_fingerprint(hit: RecallHit) -> Optional[str]:
+    """Hash normalized content so same-event copies with different ids share a slot.
+
+    Only known transport/source labels at the beginning are discarded. Digits
+    stay significant, and very short snippets are left alone to reduce false
+    positives. The digest, rather than recalled plaintext, is used as the key.
+    """
+    text = unicodedata.normalize("NFKC", str(hit.content or "")).lower()
+    previous = None
+    while text != previous:
+        previous = text
+        text = _CONTENT_SOURCE_PREFIX_RE.sub("", text, count=1)
+    compact = re.sub(r"[\W_]+", "", text, flags=re.UNICODE)
+    if len(compact) < 8:
+        return None
+    return hashlib.sha256(compact.encode("utf-8", "ignore")).hexdigest()
+
+
 @dataclass
 class RecallResult:
     """召回总结。injection_text 是直接可贴进 system prompt 的字符串。"""
@@ -333,6 +371,9 @@ class RecallPipeline:
         source_neighborhood_budget_chars: int = 600,
         fallback_archive_budget_chars: int = 360,
         injection_history: Optional[RecallInjectionHistory] = None,
+        content_fingerprint: Optional[
+            Callable[[RecallHit], Optional[str]]
+        ] = default_content_fingerprint,
     ):
         """
         完整管线：Query Expansion → 三层检索 + 兜底 → 合并去重 → OB 评分 → 精排
@@ -393,6 +434,9 @@ class RecallPipeline:
             injection_history: 可选 session 注入历史。启用后，同一 session 早先轮次
                                已注入的 namespace+source_id 会在本轮精排前过滤，
                                让后备候选补位。新 session 不受旧 session 影响。
+            content_fingerprint: 可选同轮内容指纹。默认剥离已知的行首来源标签并对
+                                 正文做 hash，使内容相同但 id 不同的副本只占一个
+                                 slot。传 None 可关闭；自定义函数异常时 fail-open。
         """
         for name, fn in (
             ("vector_search", vector_search),
@@ -406,6 +450,7 @@ class RecallPipeline:
             ("spontaneous", spontaneous),
             ("rerank", rerank),
             ("query_expand", query_expand),
+            ("content_fingerprint", content_fingerprint),
         ):
             if fn is not None and not callable(fn):
                 raise TypeError(
@@ -431,6 +476,7 @@ class RecallPipeline:
                 "and mark(session_id, keys)"
             )
         self.injection_history = injection_history
+        self.content_fingerprint = content_fingerprint
 
         self.vector_top_k = vector_top_k
         self.fts_top_k = fts_top_k
@@ -586,6 +632,55 @@ class RecallPipeline:
             if "channels" in h.metadata and isinstance(h.metadata["channels"], set):
                 h.metadata["channels"] = sorted(h.metadata["channels"])
         return list(merged.values())
+
+    def _merge_content_duplicates(self, hits: list[RecallHit]) -> tuple[list[RecallHit], int, int]:
+        """Merge same-content copies after id-level fusion without score inflation."""
+        if self.content_fingerprint is None:
+            return hits, 0, 0
+
+        merged: list[RecallHit] = []
+        by_fingerprint: dict[str, int] = {}
+        suppressed = 0
+        errors = 0
+        for hit in hits:
+            try:
+                fingerprint = self.content_fingerprint(hit)
+            except Exception:
+                fingerprint = None
+                errors += 1
+            if not fingerprint:
+                merged.append(hit)
+                continue
+
+            fingerprint = str(fingerprint)
+            if fingerprint not in by_fingerprint:
+                by_fingerprint[fingerprint] = len(merged)
+                merged.append(hit)
+                continue
+
+            suppressed += 1
+            index = by_fingerprint[fingerprint]
+            existing = merged[index]
+            if hit.score > existing.score:
+                winner, duplicate = hit, existing
+                merged[index] = winner
+            else:
+                winner, duplicate = existing, hit
+
+            # Same content appearing in several stores is not independent
+            # evidence, so keep max score rather than rewarding duplicate rows.
+            winner.score = max(float(winner.score), float(duplicate.score))
+            channels = set(winner.metadata.get("channels") or [winner.channel])
+            channels.update(duplicate.metadata.get("channels") or [duplicate.channel])
+            winner.metadata["channels"] = sorted(str(channel) for channel in channels)
+            _merge_score_breakdown(winner, duplicate)
+            winner.metadata["content_duplicates_merged"] = (
+                int(winner.metadata.get("content_duplicates_merged") or 0)
+                + int(duplicate.metadata.get("content_duplicates_merged") or 0)
+                + 1
+            )
+
+        return merged, suppressed, errors
 
     def _build_injection_text(self, hits: list[RecallHit]) -> str:
         """拼一段可以直接注入 system prompt 的字符串。控制总长度。"""
@@ -1006,6 +1101,21 @@ class RecallPipeline:
         channel_results = self._apply_score_fusion(channel_results)
         merged = self._merge_dedup(channel_results)
         channel_counts = {name: len(hits) for name, hits in channel_results}
+        merged, content_suppressed, content_errors = self._merge_content_duplicates(merged)
+        cascade_trace["content_dedup"] = {
+            "enabled": self.content_fingerprint is not None,
+            "suppressed": content_suppressed,
+            "fingerprint_errors": content_errors,
+            "status": (
+                "disabled"
+                if self.content_fingerprint is None
+                else "filtered"
+                if content_suppressed
+                else "fail_open"
+                if content_errors
+                else "idle"
+            ),
+        }
 
         # Per-call merge/dedup above handles one source found by several channels.
         # Session history handles a different failure mode: the same winner being
