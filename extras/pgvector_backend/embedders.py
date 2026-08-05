@@ -21,8 +21,17 @@ from __future__ import annotations
 import os
 from typing import Callable, Optional
 
+from lmc5.redact import redact_embedding_input
+
 # 推荐 timeout —— 单条 embedding 1-2s 就该回，超过这个量级要重试不是傻等
 DEFAULT_TIMEOUT_S = 15
+
+Embedder = Callable[[str], Optional[list[float]]]
+
+
+def _remote_embedding_input(text: str, limit: int = 8000) -> str:
+    """Redact secrets and infrastructure identifiers before remote embedding."""
+    return redact_embedding_input(text)[:limit]
 
 
 # === Gemini ===============================================================
@@ -32,7 +41,7 @@ def gemini_embedder(
     model: str = "gemini-embedding-2",
     dim: int = 3072,
     timeout: int = DEFAULT_TIMEOUT_S,
-) -> Optional[Callable[[str], list[float]]]:
+) -> Optional[Embedder]:
     """Google Gemini embedding API 适配器。
 
     返回 (text) -> list[float] 的 callable，或 None（key 缺失/不可用）。
@@ -56,7 +65,7 @@ def gemini_embedder(
             resp = requests.post(
                 endpoint,
                 json={
-                    "content": {"parts": [{"text": text[:8000]}]},
+                    "content": {"parts": [{"text": _remote_embedding_input(text)}]},
                     "outputDimensionality": dim,
                 },
                 timeout=timeout,
@@ -75,7 +84,7 @@ def voyage_embedder(
     model: str = "voyage-3-large",
     input_type: str = "document",      # "document" / "query"
     timeout: int = DEFAULT_TIMEOUT_S,
-) -> Optional[Callable[[str], list[float]]]:
+) -> Optional[Embedder]:
     """Voyage AI embedding 适配器。1024d，文/英/代码检索都强。"""
     key = api_key or os.environ.get("VOYAGE_API_KEY")
     if not key:
@@ -94,7 +103,7 @@ def voyage_embedder(
                 endpoint,
                 headers=headers,
                 json={
-                    "input": [text[:8000]],
+                    "input": [_remote_embedding_input(text)],
                     "model": model,
                     "input_type": input_type,
                 },
@@ -114,7 +123,7 @@ def openai_embedder(
     model: str = "text-embedding-3-large",
     dim: int = 3072,
     timeout: int = DEFAULT_TIMEOUT_S,
-) -> Optional[Callable[[str], list[float]]]:
+) -> Optional[Embedder]:
     """OpenAI text-embedding-3 适配器。3072d / 可截断到 1024 / 256。"""
     key = api_key or os.environ.get("OPENAI_API_KEY")
     if not key:
@@ -129,7 +138,7 @@ def openai_embedder(
 
     def call(text: str) -> Optional[list[float]]:
         try:
-            payload = {"input": text[:8000], "model": model}
+            payload = {"input": _remote_embedding_input(text), "model": model}
             if dim and dim != 3072:
                 payload["dimensions"] = dim
             resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
@@ -145,7 +154,7 @@ def openai_embedder(
 def local_st_embedder(
     model_name: str = "BAAI/bge-m3",
     device: str = "cpu",
-) -> Optional[Callable[[str], list[float]]]:
+) -> Optional[Embedder]:
     """本地 sentence-transformers 适配器。完全 offline。
 
     需要：pip install sentence-transformers
@@ -172,7 +181,7 @@ def local_st_embedder(
 
 # === 自动选择 ===========================================================
 
-def get_embedder() -> Optional[Callable[[str], list[float]]]:
+def get_embedder() -> Optional[Embedder]:
     """按环境变量顺序找一个可用 embedder。
 
     顺序：GEMINI_API_KEY → VOYAGE_API_KEY → OPENAI_API_KEY → 本地 BGE-M3 fallback
