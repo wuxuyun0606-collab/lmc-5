@@ -81,7 +81,6 @@ def test_config_defaults_are_sane():
     assert cfg.dream_batch_size >= 1
     assert cfg.dream_importance_threshold >= 1
     assert cfg.llm_max_retries >= 1
-    assert cfg.e_axis_shadow_days >= 0
 
 
 def test_ob_score_basics():
@@ -133,70 +132,70 @@ def test_callable_validation_at_init():
 
 
 def test_e_axis_trigger_rules():
-    """should_score_e_axis: type-based triggers, keyword gating, relation hints."""
-    from extras.pgvector_backend.e_axis_trigger import should_score_e_axis
+    """should_propose_e_axis: type, keyword, and relation-hint gates."""
+    from extras.pgvector_backend.e_axis_trigger import should_propose_e_axis
     from extras.pgvector_backend.night_dream import Candidate
 
     # ALWAYS_TRIGGER types fire regardless of content
     cand = Candidate(type="relationship_moment", title="X", content="neutral text",
                      importance=8, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert should_score_e_axis(cand)
+    assert should_propose_e_axis(cand)
 
     cand = Candidate(type="risk_boundary", title="X", content="neutral",
                      importance=8, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert should_score_e_axis(cand)
+    assert should_propose_e_axis(cand)
 
     cand = Candidate(type="preference", title="X", content="neutral",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert should_score_e_axis(cand)
+    assert should_propose_e_axis(cand)
 
     # NEVER_TRIGGER without emotion keywords
     cand = Candidate(type="fact", title="API config", content="set port to 8080",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert not should_score_e_axis(cand)
+    assert not should_propose_e_axis(cand)
 
     cand = Candidate(type="engineering_decision", title="X", content="use sqlite",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert not should_score_e_axis(cand)
+    assert not should_propose_e_axis(cand)
 
     # NEVER_TRIGGER WITH emotion keyword → still fires
     cand = Candidate(type="fact", title="X", content="she said 我们 will always work together",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert should_score_e_axis(cand)
+    assert should_propose_e_axis(cand)
 
     # event with emotional_link hint
     cand = Candidate(type="event", title="meeting", content="ordinary meeting",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1],
                      relation_hints=["emotional_link"])
-    assert should_score_e_axis(cand)
+    assert should_propose_e_axis(cand)
 
     # bare event without triggers → skip
     cand = Candidate(type="event", title="X", content="ran tests",
                      importance=5, risk="normal", evidence="X", source_chunk_ids=[1])
-    assert not should_score_e_axis(cand)
+    assert not should_propose_e_axis(cand)
 
 
-def test_e_axis_dispatcher_validates_inputs():
-    """EAxisDispatcher: required scorer, callable attach_score, callable gate."""
-    from extras.pgvector_backend.e_axis_trigger import EAxisDispatcher
+def test_e_axis_proposal_dispatcher_validates_inputs():
+    """The helper can submit proposals but has no authoritative E write callback."""
+    from extras.pgvector_backend.e_axis_trigger import EAxisProposalDispatcher
 
     class StubScorer:
         def score(self, title, content, record_id=None):
             return None
 
     with pytest.raises(TypeError, match="scorer"):
-        EAxisDispatcher(scorer=None, attach_score=lambda i, s: None)
+        EAxisProposalDispatcher(scorer=None, submit_proposal=lambda i, s: None)
 
-    with pytest.raises(TypeError, match="attach_score"):
-        EAxisDispatcher(scorer=StubScorer(), attach_score="not callable")
+    with pytest.raises(TypeError, match="submit_proposal"):
+        EAxisProposalDispatcher(scorer=StubScorer(), submit_proposal="not callable")
 
     with pytest.raises(TypeError, match="gate"):
-        EAxisDispatcher(scorer=StubScorer(),
-                        attach_score=lambda i, s: None,
-                        gate="not callable")
+        EAxisProposalDispatcher(scorer=StubScorer(),
+                                submit_proposal=lambda i, s: None,
+                                gate="not callable")
 
     # All-valid construction works
-    d = EAxisDispatcher(scorer=StubScorer(), attach_score=lambda i, s: None)
+    d = EAxisProposalDispatcher(scorer=StubScorer(), submit_proposal=lambda i, s: None)
     assert d.scorer is not None
 
 
@@ -777,16 +776,9 @@ def test_recent_raw_chunk_bridge_is_independent_and_capped():
     assert any(h.channel == "raw_chunk" for h in result.hits)
 
 
-def test_night_dream_invokes_dispatcher_on_write():
-    """NightDream.run(apply=True) calls dispatcher.maybe_score for every written candidate."""
+def test_night_dream_has_no_automatic_e_axis_writer():
+    """NightDream must not accept a housekeeper dispatcher that writes E."""
     from extras.pgvector_backend.night_dream import NightDream, Candidate, Chunk
-
-    invocations = []
-
-    class StubDispatcher:
-        def maybe_score(self, memory_id, candidate):
-            invocations.append((memory_id, candidate.title))
-            return None
 
     next_id = [0]
 
@@ -810,12 +802,10 @@ def test_night_dream_invokes_dispatcher_on_write():
     dream = NightDream(
         proposer=proposer,
         write_candidate=write_candidate,
-        e_axis_dispatcher=StubDispatcher(),
         importance_threshold=5,
     )
     res = dream.run([Chunk(id=1, text="x" * 200)], apply=True)
     assert res.written_ids == [1]
-    assert invocations == [(1, "first promise")]
 
 
 def test_heartbeat_detector_candidates_stay_review_gated():

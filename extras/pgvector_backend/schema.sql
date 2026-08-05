@@ -25,15 +25,17 @@ CREATE TABLE IF NOT EXISTS lmc5_curated_memories (
     depth           INTEGER,                   -- 1-5 加深度系数
     activation_boost NUMERIC(6,3) DEFAULT 0,   -- 时间涟漪累积
 
-    -- E 轴 · 情绪 / 体验信号
+    -- E 轴 · 主 AI 亲自写入并给出初始顺序；自动化只能在此后管理
+    e_authored_by    TEXT,                      -- 主 AI / primary agent identity
+    e_initial_priority INTEGER CHECK (e_initial_priority BETWEEN 1 AND 100),
     valence         REAL,                      -- [-1, 1]
     arousal         REAL,                      -- [0, 1]
     tension         REAL,                      -- [0, 1]
     emotion_confidence REAL,                   -- [0, 1]
     response_tendency TEXT,                    -- comfort | engage | withdraw | alert
     growth_delta    TEXT,                      -- growth | stable | setback
-    emotion_scorer  TEXT,
-    emotion_rubric_version TEXT,
+    emotion_scorer  TEXT,                      -- legacy/proposal metadata; not E authority
+    emotion_rubric_version TEXT,               -- legacy/proposal metadata; not E authority
     mood_icon       TEXT,
 
     -- Z 轴 · 事实演化
@@ -53,7 +55,19 @@ CREATE TABLE IF NOT EXISTS lmc5_curated_memories (
     resolved        BOOLEAN DEFAULT FALSE,
     digested        BOOLEAN DEFAULT FALSE,
     source_file     TEXT DEFAULT '',           -- 追溯：来自哪条 dream 候选 / 哪段 chunk
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT lmc5_e_primary_authorship CHECK (
+        (
+            valence IS NULL AND arousal IS NULL AND tension IS NULL
+            AND response_tendency IS NULL AND growth_delta IS NULL
+            AND mood_icon IS NULL
+        )
+        OR (
+            NULLIF(BTRIM(e_authored_by), '') IS NOT NULL
+            AND e_initial_priority IS NOT NULL
+        )
+    )
 );
 
 CREATE INDEX IF NOT EXISTS lmc5_curated_status_idx
@@ -64,6 +78,52 @@ CREATE INDEX IF NOT EXISTS lmc5_curated_category_idx
     ON lmc5_curated_memories (category);
 CREATE INDEX IF NOT EXISTS lmc5_curated_created_idx
     ON lmc5_curated_memories (created_at DESC);
+
+CREATE OR REPLACE FUNCTION lmc5_guard_e_axis_origin()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.e_authored_by IS DISTINCT FROM OLD.e_authored_by
+       OR NEW.e_initial_priority IS DISTINCT FROM OLD.e_initial_priority
+       OR NEW.valence IS DISTINCT FROM OLD.valence
+       OR NEW.arousal IS DISTINCT FROM OLD.arousal
+       OR NEW.tension IS DISTINCT FROM OLD.tension
+       OR NEW.response_tendency IS DISTINCT FROM OLD.response_tendency
+       OR NEW.growth_delta IS DISTINCT FROM OLD.growth_delta
+       OR NEW.mood_icon IS DISTINCT FROM OLD.mood_icon THEN
+        RAISE EXCEPTION
+            'E-axis authored content and initial priority are immutable; create a successor record';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS lmc5_guard_e_axis_origin_trigger ON lmc5_curated_memories;
+CREATE TRIGGER lmc5_guard_e_axis_origin_trigger
+BEFORE UPDATE OF e_authored_by, e_initial_priority, valence, arousal, tension,
+                 response_tendency, growth_delta, mood_icon
+ON lmc5_curated_memories
+FOR EACH ROW EXECUTE FUNCTION lmc5_guard_e_axis_origin();
+
+
+-- === E-axis proposals（housekeeper 只能建议，不能首写 E）----------------
+CREATE TABLE IF NOT EXISTS lmc5_e_axis_proposals (
+    id              BIGSERIAL PRIMARY KEY,
+    memory_id       BIGINT NOT NULL REFERENCES lmc5_curated_memories(id) ON DELETE CASCADE,
+    valence         REAL,
+    arousal         REAL,
+    tension         REAL,
+    response_tendency TEXT,
+    growth_delta    TEXT,
+    confidence      REAL,
+    proposer        TEXT,
+    rubric_version  TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending', -- pending / accepted / rejected
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    reviewed_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS lmc5_e_axis_proposals_pending_idx
+    ON lmc5_e_axis_proposals (status, created_at DESC);
 
 
 -- === Vectors（owner-keyed embeddings）---------------------------------

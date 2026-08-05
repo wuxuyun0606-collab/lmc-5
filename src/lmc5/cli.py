@@ -49,6 +49,8 @@ def cmd_add(args: argparse.Namespace) -> None:
             tension=args.tension,
             confidence=args.confidence,
             growth_delta=args.growth_delta,
+            e_authored_by=args.e_authored_by,
+            e_initial_priority=args.e_initial_priority,
             source=args.source,
         )
     result = record.to_public_dict()
@@ -425,6 +427,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--tension", type=float)
     p_add.add_argument("--confidence", type=float)
     p_add.add_argument("--growth-delta", default="")
+    p_add.add_argument(
+        "--e-authored-by",
+        default="",
+        help="Primary agent identity that authored the E-axis content",
+    )
+    p_add.add_argument(
+        "--e-initial-priority",
+        type=int,
+        help="Primary-agent initial E priority (1-100; higher surfaces first)",
+    )
     p_add.add_argument("--source", default="")
     p_add.set_defaults(func=cmd_add)
 

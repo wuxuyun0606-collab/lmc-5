@@ -184,24 +184,26 @@ Definition of done:
 In production, this is also where the nightly relation-build pass lives. If you
 skip it, `memory_relations` stays empty and graph recall is dead.
 
-## Phase 6: E Axis In Shadow
+## Phase 6: Primary-Authored E Axis
 
-Goal: add experience signals without letting noisy scores steer the system too
-early.
+Goal: let the primary agent write experience and choose its initial order,
+then hand later lifecycle management to automation.
 
 Implement or verify:
 
 - `valence` is between `-1.0` and `1.0`.
 - `arousal`, `tension`, and `confidence` are between `0.0` and `1.0`.
 - Invalid E-axis values fail at write time.
-- New scorers run in shadow before they affect ranking.
+- Every E write includes `e_authored_by` and `e_initial_priority`.
+- Housekeeper/scorer output goes to a proposal queue, never directly to E.
+- There is no automated E backfill.
 - E signals influence posture and resonance; they do not override facts.
 
 Definition of done:
 
-- Bad scorer output cannot be written silently.
+- Bad proposal output cannot become authoritative E silently.
 - Recall still works when E fields are missing.
-- E scoring changes are measured before they affect user-facing ranking.
+- Initial E order is traceable to the primary agent; M manages only afterward.
 
 ## Phase 7: Production Loop
 
@@ -244,7 +246,7 @@ review-only.
   expansion edges.
 - Do not trust a graph with many edges until a tiny fixture proves hop 1,
   hop 2, thresholds, live endpoint filtering, and review-edge exclusion.
-- Do not let an LLM scorer write unbounded E-axis numbers.
+- Do not let an LLM scorer write authoritative E-axis fields at all.
 - Do not run a production dream job without dry-run output and snapshots.
 - Do not call a deployment complete until nightly relation build is scheduled.
 

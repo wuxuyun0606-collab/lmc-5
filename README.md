@@ -40,7 +40,7 @@ matched to different deployment shapes:
 | Recall | FTS5 lexical + portable cosine | 3-tier cascade (vector → curated FTS → raw-events FTS) + 3 independent channels (Y-graph 2-hop / Russell emotion / spontaneous) + optional rerank |
 | Hippocampus | Deterministic chunking | LLM-proposed candidates + safety gates + semantic dedup |
 | Reflection | — | Weekly / monthly narrative timeline |
-| E axis | Field placeholders | Provider-agnostic LLM scorer with retry + min-confidence + shadow-period helper |
+| E axis | Primary-authored fields | Primary agent writes E and sets initial priority; automation manages only after creation |
 | Hooks | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` for Claude Code |
 | Operations | — | Forge (session continuity) + Refined Session Carryover + Swap (snapshot rollback) reference patterns |
 | Best for | Prototypes, demos, <5k vectors, offline | VPS 7×24 deployments, persona-class agents, multi-month continuity |
@@ -76,7 +76,7 @@ and [extras/pgvector_backend/.env.example](extras/pgvector_backend/.env.example)
 > The first guide explains how the five axes become the write, night, and
 > recall circuits; the second gives the staged build order: X/Z safety
 > substrate, M patrol, Y write path, Y two-hop typed graph read path,
-> hippocampus relation build, then E-axis shadow scoring and production cron.
+> hippocampus relation build, then primary-agent E authorship, proposal review, and production cron.
 
 ### Quick Automation Map
 
@@ -88,7 +88,7 @@ LMC-5 has automatic passes, but **only after you wire and schedule them**.
 | **X** | Yes: `consolidate`, `timeline_sweep(thread)`, and read-only `other` incubation checks can run nightly. | Thread naming, split/merge decisions, timeline interpretation. |
 | **Y** | Yes: the hippocampus pass can write safe relation edges. | `contradicts`, `cause_effect`, `supports`, and broad graph cleanup. |
 | **Z** | Partly: `z_audit` can queue contradiction/supersession candidates. | Applying supersession to live facts. |
-| **E** | Yes: heartbeat detection and E-axis backfill can run in batch/shadow mode. | Letting noisy scores affect ranking before validation. |
+| **E** | Primary agent writes E and chooses its initial order; automation can manage it afterward. | Housekeeper/scorer output remains proposal-only until primary-agent review. |
 | **M** | Partly: patrol is read-only and schedulable; recall/surface gates are computed at retrieval time; decay/dedup jobs are separate. | Archive/delete/merge/demote decisions and formal X-thread splits. |
 
 For the full checklist, read

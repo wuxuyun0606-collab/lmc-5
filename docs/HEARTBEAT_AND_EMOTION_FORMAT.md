@@ -220,7 +220,8 @@ processes should pass a stable `state_path` so the throttle survives between
 hook invocations. The batch detector is the safety net — it catches moments
 the trigger missed because the keyword list wasn't broad enough. Batch detector
 output is raw evidence, not a formatted heartbeat memory; never write it
-directly into `lmc5_curated_memories`.
+directly into `lmc5_curated_memories`. The primary agent reviews the evidence,
+writes any resulting E memory in its own voice, and sets `e_initial_priority`.
 
 ### Cleaning old detector pollution
 

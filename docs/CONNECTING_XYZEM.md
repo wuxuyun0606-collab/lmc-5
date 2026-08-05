@@ -75,7 +75,7 @@ SessionEnd / log-event
 | X | `thread` / timeline label / source chunk time range |
 | Y | relation hints or relation rows to other memory ids |
 | Z | `fact_key`, `version_status`, `active_fact` when it is factual |
-| E | risk, urgency, tension, valence/arousal if enabled |
+| E | primary-authored content, `e_authored_by`, `e_initial_priority`, optional coordinates |
 | M | lifecycle status: current/review/archive candidate, weight/heat signals |
 
 Acceptance check:
@@ -102,7 +102,7 @@ take snapshot
   -> hippocampus candidate pass
   -> safe Y relation write
   -> Z fact audit
-  -> E axis backfill / shadow scoring
+  -> E proposal queue for primary-agent review (no automatic E write)
   -> X timeline / narrative sweep
   -> M patrol
   -> validation
@@ -306,7 +306,8 @@ manual or gated supersession is auditable
 
 ### E: Experience
 
-E is connected only if risk/urgency/tension/valence/arousal affect recall posture or response posture.
+E is connected only if the primary agent writes the content, chooses its
+initial priority, and later automation starts from that recorded order.
 
 Not enough:
 
@@ -318,9 +319,9 @@ Enough:
 
 ```text
 emotion_resonate can add relevant memories
-risk/urgency can raise priority
-shadow scoring logs failures and confidence
-low-confidence scores do not silently rewrite behavior
+every E record has e_authored_by + e_initial_priority
+housekeeper output stays in lmc5_e_axis_proposals
+M manages decay/hits/activation only after primary authorship
 ```
 
 ### M: Metabolism

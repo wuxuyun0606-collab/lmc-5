@@ -43,6 +43,8 @@ class PerceptionCandidate:
     source: str
     valence: float = 0.5
     arousal: float = 0.3
+    e_authored_by: str = ""
+    e_initial_priority: Optional[int] = None
     created_at: Optional[datetime] = None
     last_hit: Optional[datetime] = None
     vitality_score: float = 0.0           # ob_score 算出来的
@@ -110,6 +112,8 @@ class Perception:
             "source": c.source,
             "valence": c.valence,
             "arousal": c.arousal,
+            "e_authored_by": c.e_authored_by,
+            "e_initial_priority": c.e_initial_priority,
             "created_at": c.created_at,
             "last_hit": c.last_hit,
         }

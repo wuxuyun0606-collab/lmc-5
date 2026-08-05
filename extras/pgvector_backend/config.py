@@ -57,10 +57,6 @@ class LMC5Config:
         "http_timeout", "http_error", "empty_response", "no_json_in_text",
     ))                                      # 这些失败类型走重试；schema_fail / range_fail 不重试
 
-    # === E 轴 ===
-    e_axis_shadow_days: int = 30           # E 轴评分上线后不参与排序的影子期
-    e_axis_sleep_between_calls_s: float = 0.3  # 防限流
-
     # === 时间衰减 / OB 评分 ===
     decay_floor: float = 0.3               # 衰减地板；不衰减到 0
     decay_half_life_default: int = 45      # 未在 category 表里命中时的默认半衰期（天）

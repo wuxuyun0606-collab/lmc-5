@@ -83,13 +83,24 @@ Supported statuses:
 - `archived`
 - `candidate_thread`
 
-## E: Experience Signals
+## E: Experience, Behavioral Posture & Personality Formation
 
-E is a compact operational signal layer. It is deliberately not part of the
-first-stage search score in this reference implementation.
+E is a compact experiential and operational signal layer. It records how
+reviewed experience may contribute to long-term behavioral tendencies and
+future response posture. It is not an emotion simulator, does not silently
+rewrite a persona, and is deliberately not part of the first-stage search
+score in this reference implementation.
+
+The primary, user-facing agent owns E authorship and initial order. Each
+authoritative E record carries `e_authored_by` and `e_initial_priority`.
+Housekeeper/scorer models can submit proposals, but cannot create or backfill E
+records. M-axis automation begins only after the primary agent has chosen the
+starting order.
 
 Stable fields:
 
+- `e_authored_by`: primary agent that personally wrote the E content
+- `e_initial_priority`: primary-agent initial order from 1 to 100
 - `risk_level`: `normal`, `medium`, or `high`
 - `urgency`: `low`, `normal`, or `high`
 - `response_tendency`: how the agent should approach similar future cases

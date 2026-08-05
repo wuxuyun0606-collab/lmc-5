@@ -3,7 +3,7 @@
 每晚跑一次，把白天积累的原始对话变成结构化记忆：
 
     consolidate → nap → hippocampus (incl. Y relation build) → heartbeat_detector
-        → e_axis_backfill → timeline_sweep(each X-line)
+        → timeline_sweep(each X-line)
         → narrative_weekly → narrative_monthly (每月初) → z_audit → patrol
 
 每步可选（传 None 就跳）。失败隔离——一步挂了不影响后续步骤。
@@ -38,7 +38,6 @@
         narrative_monthly=my_monthly_fn,
         z_audit=my_z_audit_fn,
         patrol=my_patrol_fn,
-        e_axis_backfill=my_e_backfill_fn,
     )
     result = runner.run()
 
@@ -222,7 +221,6 @@ class DreamRunner:
         narrative_monthly:  () -> Any   生成本月叙事索引
         z_audit:            () -> Any   Z 线冲突审计
         patrol:             () -> Any   数据库巡检（只读）
-        e_axis_backfill:    () -> Any   E 轴评分补全
         monthly_day_limit:  int         每月前 N 天才跑 monthly（默认 3）
     """
 
@@ -231,7 +229,6 @@ class DreamRunner:
         "nap",
         "hippocampus",
         "heartbeat_detect",
-        "e_axis_backfill",
         "timeline_sweep",
         "narrative_weekly",
         "narrative_monthly",
@@ -251,7 +248,6 @@ class DreamRunner:
         narrative_monthly: Optional[Callable[[], Any]] = None,
         z_audit: Optional[Callable[[], Any]] = None,
         patrol: Optional[Callable[[], Any]] = None,
-        e_axis_backfill: Optional[Callable[[], Any]] = None,
         monthly_day_limit: int = 3,
         clock: Callable[[], datetime] = datetime.now,
     ):
@@ -265,7 +261,6 @@ class DreamRunner:
             ("narrative_monthly", narrative_monthly),
             ("z_audit", z_audit),
             ("patrol", patrol),
-            ("e_axis_backfill", e_axis_backfill),
             ("timeline_threads", timeline_threads),
             ("clock", clock),
         ]:
@@ -297,7 +292,6 @@ class DreamRunner:
             "narrative_monthly": narrative_monthly,
             "z_audit": z_audit,
             "patrol": patrol,
-            "e_axis_backfill": e_axis_backfill,
         }
         self.timeline_threads = timeline_threads
         self.monthly_day_limit = monthly_day_limit

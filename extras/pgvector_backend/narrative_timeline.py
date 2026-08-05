@@ -12,7 +12,7 @@ lmc-5 core 的 X 线只到 chunk 切块就停了——一周/一月级别的"故
 
 设计：
   - 输入：memories（带 created_at + weight + content）
-  - 提炼：LLM reflection 把高权重/高 arousal 事件串成主线（默认 deterministic baseline）
+  - 提炼：E 记录从主 AI 初始优先级出发，其他记录使用 weight
   - 输出：NarrativeIndex（weekly 一句话索引 + monthly 段落主线）
   - provider-free 默认：不传 reflector 就用 weight 排序 + 顶部 N 条做 fallback
 
@@ -38,6 +38,7 @@ class MemoryRecord:
     weight: float = 1.0
     arousal: float = 0.3
     valence: float = 0.5
+    e_initial_priority: Optional[int] = None
     source: str = ""
     category: str = ""
 
@@ -78,12 +79,17 @@ def _select_seeds(
     top_n: int,
     weight_floor: float = 1.5,
 ) -> list[MemoryRecord]:
-    """选种子：weight + arousal 联合排序，过低阈值"""
+    """选种子：E 用主 AI 初始优先级，非 E 使用 weight。"""
     eligible = [m for m in mems if m.weight >= weight_floor]
     if not eligible:
         eligible = mems
     eligible.sort(
-        key=lambda m: (m.weight + m.arousal * 0.5, m.created_at),
+        key=lambda m: (
+            float(m.e_initial_priority) / 10.0
+            if m.e_initial_priority is not None
+            else m.weight,
+            m.created_at,
+        ),
         reverse=True,
     )
     return eligible[:top_n]
@@ -115,7 +121,7 @@ class NarrativeTimeline:
     """X 线叙事提炼
 
     职责：
-      1. 给定时间窗口，从记忆里挑种子（weight + arousal 联合排）
+      1. 给定时间窗口，从主 AI 初始优先级 / 非 E weight 挑种子
       2. 把种子交给 reflector（LLM 或 deterministic baseline）做叙事
       3. 输出 NarrativeIndex，调用方决定落库还是只读
     """
@@ -230,7 +236,7 @@ def make_llm_reflector_prompt(seeds: list[MemoryRecord], period: str) -> str:
 
 你在帮一个长期运行的 AI 整理过去{period_zh}的叙事索引。
 
-候选事件（按 weight × arousal 排序，已过初筛）：
+候选事件（E 依主 AI 初始优先级，非 E 依 weight）：
 {items}
 
 要求输出 JSON：

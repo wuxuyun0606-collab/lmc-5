@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- **Primary-agent E-axis authorship.** E content now records
+  `e_authored_by` and `e_initial_priority`. The primary/user-facing agent
+  writes the experience and chooses its initial order; M-axis automation may
+  manage it only afterward. Housekeeper/scorer output is isolated in
+  `lmc5_e_axis_proposals`.
 - **Refined Session Carryover / 精炼续窗.** New Claude Code helper
   `extras/claude_code/refined_session_carryover.py` plus
   `docs/REFINED_SESSION_CARRYOVER.md`. This replaces the old
@@ -53,26 +58,18 @@
   The reference `UserPromptSubmit` hook enables a hash-only file history by
   default, passes the runtime `session_id`, isolates new sessions, and expires
   stale state after two days.
-- **E-axis trigger layer.** The 0.2.0 release shipped `EAxisScorer` (which
-  decides *how* to score) but forgot the layer that decides *which memories
-  should be scored at all*. Without it, `night_dream` never invokes the
-  scorer on write, and the E columns stay NULL unless the caller wires it
-  manually. New module `extras/pgvector_backend/e_axis_trigger.py`:
-  - `should_score_e_axis(candidate)` — type / keyword / relation-hint gate.
+- **E-axis ownership correction.** The earlier trigger design incorrectly
+  allowed a housekeeping scorer to author E fields. The corrected
+  `extras/pgvector_backend/e_axis_trigger.py` is proposal-only:
+  - `should_propose_e_axis(candidate)` — type / keyword / relation-hint gate.
     `relationship_moment`, `risk_boundary`, `preference` always fire; `fact`
     and `engineering_decision` skip unless emotion keywords or
     `emotional_link` hint say otherwise.
   - `EMOTION_TRIGGER_KEYWORDS` — bilingual (CN/EN) keyword dictionary across
     strong-emotion / relational / tension / physical-reaction categories.
-  - `EAxisDispatcher` — chains gate → scorer → write-back with full
-    exception isolation so a failed E score never blocks the underlying
-    memory write.
-  - `backfill_e_axis()` — nightly batch helper to score memories that
-    landed in the last 24 hours but missed live scoring.
-- **`NightDream` integration.** New optional `e_axis_dispatcher`
-  constructor argument. When provided, `run(apply=True)` auto-fires the
-  dispatcher for every successfully written candidate. Defaults to `None`
-  (backward-compatible with 0.2.0).
+  - `EAxisProposalDispatcher` routes suggestions to a review queue.
+  - Direct E write-back and automated `backfill_e_axis()` are disabled.
+  - `NightDream` and `DreamRunner` no longer expose automatic E-write steps.
 
 ## 0.2.0 — XYZEM completion: production reference impl + pipe layer
 
@@ -95,9 +92,8 @@ production impl alongside it.
   injectable reflector and deterministic baseline.
 - `ob_recall.py` — OB-style scoring with category half-life table, time
   ripple, Russell-distance emotional resonance.
-- `e_axis_scorer.py` — Provider-agnostic LLM emotional scorer with categorized
-  failure logs, exponential-backoff retry on retryable failures, `min_confidence`
-  gate, `is_in_shadow_period(...)` helper.
+- `e_axis_scorer.py` — Provider-agnostic, non-authoritative E proposal helper
+  with categorized failure logs and retry handling. It does not write E.
 - `perception.py` — Spontaneous-recall scheduler with high-vitality + drift
   ratios and time-of-day shaping; JSON cache for hook integration.
 - `recall_pipeline.py` — Five-channel parallel recall (vector / FTS fallback /
@@ -120,7 +116,7 @@ production impl alongside it.
 ### New documentation
 
 - `docs/PERSONA_MODE.md` — Six policy switches for AI companion deployments
-  (identity protected / Z manual gate / E shadow period / category half-lives /
+  (identity protected / Z manual gate / primary-authored E order / category half-lives /
   spontaneous recall / relationship moments protected). Each switch has a
   concrete configuration example.
 - `docs/DEEPSEEK_INTEGRATION.md` — Housekeeper LLM role across dream / Z / Y /

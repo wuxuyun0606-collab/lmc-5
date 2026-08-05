@@ -1,19 +1,18 @@
-"""E 轴触发层 · 决定"什么记忆该被打 E 分"
+"""E 轴建议层（非写入层）· 找出可供主 AI 审阅的体验候选
 
-production impl 之前漏了一层：`e_axis_scorer.py` 只解决"怎么打分"，
-但**谁来决定"这段记忆要不要打 E"** 这层完全空白——night_dream 写入路径根本
-不调 EAxisScorer，所有 E 字段都得调用方手动喂。
+主 AI 拥有 E 轴首写权和首排权。这一层只帮助 housekeeper/scorer
+发现值得交给主 AI 审阅的候选，不是 E 轴写入链路。
 
-这个文件补上 trigger 层：
-  1. `should_score_e_axis(candidate)` — 判断单条候选是否值得调 scorer
-  2. `EAxisDispatcher` — 把判断 + 评分 + 写回串成一条链，给 night_dream 用
-  3. `backfill_e_axis(...)` — 夜间批量补漏分（写入但 E 字段缺失的记忆）
+这个文件只允许产生 proposal：
+  1. `should_propose_e_axis(candidate)` — 判断单条候选是否值得建议给主 AI
+  2. `EAxisProposalDispatcher` — 把建议写入 proposal queue，不写 E 主记录
+  3. `backfill_e_axis(...)` — 保留为硬失败兼容入口，防止旧部署继续自动补写 E
 
 设计：
   - trigger 规则可覆盖：默认按 type + 关键词 + relation_hints 判断，
     部署方可注入自家 gate 函数
   - 关键词字典中英双语，覆盖情绪/关系性/张力/物理反应四类
-  - dispatcher 异常永不阻塞写入主流程——E 分挂了，记忆本身还在
+  - 主 AI 亲自写 E 内容并给出初始优先级；housekeeper 没有首写权
 """
 from __future__ import annotations
 
@@ -25,14 +24,14 @@ if TYPE_CHECKING:
 
 # === 触发规则 ===========================================================
 
-# 这些 type 一律打分（关系性和风险性记忆不打 E 等于丢一半信息）
+# 这些 type 一律提交 proposal 候选（仍需主 AI 决定是否写 E）
 ALWAYS_TRIGGER_TYPES = frozenset({
     "relationship_moment",
     "risk_boundary",
     "preference",
 })
 
-# 这些 type 默认不打（事实/工程决策的情绪信号通常是噪声）
+# 这些 type 默认不提 proposal（事实/工程决策的情绪信号通常是噪声）
 NEVER_TRIGGER_TYPES = frozenset({
     "fact",
     "engineering_decision",
@@ -63,15 +62,15 @@ EMOTION_TRIGGER_KEYWORDS = (
 )
 
 
-def should_score_e_axis(candidate: Any) -> bool:
-    """判断单条候选是否值得调 E scorer。
+def should_propose_e_axis(candidate: Any) -> bool:
+    """判断单条候选是否值得提交 E proposal。
 
     规则顺序（短路）：
-      1. type 在 ALWAYS_TRIGGER_TYPES → 一律打
-      2. type 在 NEVER_TRIGGER_TYPES 且无情绪关键词 → 不打
-      3. content/title 命中情绪关键词 → 打
-      4. relation_hints 含 emotional_link → 打
-      5. 默认不打（保守）
+      1. type 在 ALWAYS_TRIGGER_TYPES → 一律提 proposal
+      2. type 在 NEVER_TRIGGER_TYPES 且无情绪关键词 → 不提
+      3. content/title 命中情绪关键词 → 提
+      4. relation_hints 含 emotional_link → 提
+      5. 默认不提（保守）
 
     candidate 需要 .type / .title / .content / .relation_hints 字段
     """
@@ -96,52 +95,48 @@ def should_score_e_axis(candidate: Any) -> bool:
     return False
 
 
-# === Dispatcher · candidate → score → 写回 =============================
+# === Dispatcher · candidate → proposal queue ===========================
 
-class EAxisDispatcher:
-    """把"判断 → 评分 → 写回"串成一条链。
+class EAxisProposalDispatcher:
+    """把"判断 → 建议 → proposal queue"串成一条链。
 
-    night_dream.run() 写入每条 candidate 后调 `maybe_score(memory_id, cand)`，
-    这个类负责：
-      - 用 gate 决定要不要打分
-      - 调 EAxisScorer.score()
-      - 调 attach_score(memory_id, EAxisScore) 写回 DB
-
-    所有异常被捕获并 log——E 分挂了，记忆本身还在。
+    输出没有 E 轴权威性。主 AI 必须阅读原始经历，亲自写 E 内容并设置
+    `e_initial_priority`；proposal 不能直接 UPDATE curated memories。
     """
 
     def __init__(
         self,
         scorer: "EAxisScorer",
-        attach_score: Callable[[int, "EAxisScore"], None],
+        submit_proposal: Callable[[int, "EAxisScore"], None],
         gate: Optional[Callable[[Any], bool]] = None,
         logger=None,
     ):
         """
         Args:
             scorer: 一个已经构造好的 EAxisScorer 实例
-            attach_score: (memory_id, score) → None。把 E 字段写回 DB 的 callback
-            gate: candidate → bool 触发判断。不传走 should_score_e_axis
+            submit_proposal: (memory_id, score) → None。只写 proposal queue
+            gate: candidate → bool 触发判断。不传走 should_propose_e_axis
             logger: 自带 logger；不传走 logging.getLogger("lmc5.e_axis_trigger")
         """
         import logging
         if scorer is None:
-            raise TypeError("EAxisDispatcher: scorer is required")
-        if not callable(attach_score):
+            raise TypeError("EAxisProposalDispatcher: scorer is required")
+        if not callable(submit_proposal):
             raise TypeError(
-                f"EAxisDispatcher: attach_score must be callable, got {type(attach_score).__name__}"
+                "EAxisProposalDispatcher: submit_proposal must be callable, got "
+                f"{type(submit_proposal).__name__}"
             )
         if gate is not None and not callable(gate):
             raise TypeError(
-                f"EAxisDispatcher: gate must be callable or None, got {type(gate).__name__}"
+                f"EAxisProposalDispatcher: gate must be callable or None, got {type(gate).__name__}"
             )
         self.scorer = scorer
-        self.attach_score = attach_score
-        self.gate = gate or should_score_e_axis
+        self.submit_proposal = submit_proposal
+        self.gate = gate or should_propose_e_axis
         self.log = logger or logging.getLogger("lmc5.e_axis_trigger")
 
-    def maybe_score(self, memory_id: int, candidate: Any) -> Optional["EAxisScore"]:
-        """评估并视情况打分。返回 score 或 None。"""
+    def maybe_propose(self, memory_id: int, candidate: Any) -> Optional["EAxisScore"]:
+        """评估并视情况提交非权威 proposal。返回 proposal 或 None。"""
         try:
             if not self.gate(candidate):
                 return None
@@ -162,98 +157,47 @@ class EAxisDispatcher:
             return None
 
         try:
-            self.attach_score(memory_id, score)
+            self.submit_proposal(memory_id, score)
         except Exception as e:
-            self.log.error("attach_score failed for #%d: %s", memory_id, e)
+            self.log.error("submit_proposal failed for #%d: %s", memory_id, e)
             return None
 
         return score
 
 
-# === 夜间批量补漏分 =====================================================
+# === 禁止自动补写 E ======================================================
 
-def backfill_e_axis(
-    load_missing: Callable[[int], list],
-    scorer: "EAxisScorer",
-    attach_score: Callable[[int, "EAxisScore"], None],
-    max_batch: int = 50,
-    sleep_between_s: float = 0.3,
-) -> dict:
-    """扫近 24h 写入但 E 字段缺失的记忆，补打分。
-
-    与 dispatcher 路径的差别：backfill 是补漏，**不**再过 gate——
-    走到这里说明记忆已经入库，只是当时没打分。是否打交给 load_missing
-    SQL 决定（部署方可以加 WHERE category IN (...) 之类的过滤）。
-
-    Args:
-        load_missing: (limit) → list of (memory_id, title, content)
-        scorer: EAxisScorer 实例
-        attach_score: (memory_id, score) → None
-        max_batch: 单次最多处理几条
-        sleep_between_s: 防限流
-
-    Returns: {"scored": int, "skipped": int, "failed": int}
-    """
-    import time
-
-    rows = load_missing(max_batch) or []
-    scored = 0
-    skipped = 0
-    failed = 0
-
-    for row in rows:
-        try:
-            memory_id, title, content = int(row[0]), row[1] or "", row[2] or ""
-        except (TypeError, ValueError, IndexError):
-            skipped += 1
-            continue
-
-        try:
-            score = scorer.score(title, content, record_id=memory_id)
-        except Exception:
-            failed += 1
-            continue
-
-        if score is None:
-            skipped += 1
-            continue
-
-        try:
-            attach_score(memory_id, score)
-            scored += 1
-        except Exception:
-            failed += 1
-
-        if sleep_between_s > 0:
-            time.sleep(sleep_between_s)
-
-    return {"scored": scored, "skipped": skipped, "failed": failed,
-            "examined": len(rows)}
+def backfill_e_axis(*args, **kwargs) -> dict:
+    """Removed: automated agents may not backfill authoritative E content."""
+    raise RuntimeError(
+        "automatic E-axis backfill is disabled; the primary agent must author "
+        "E content and set its initial priority"
+    )
 
 
 # === SQL helper（参考实现，部署方按需用）===
 
-DEFAULT_LOAD_MISSING_SQL = """
+DEFAULT_LOAD_PROPOSAL_CANDIDATES_SQL = """
 SELECT id, title, content
-FROM lmc5_curated_memories
-WHERE version_status = 'current'
-  AND valence_v3 IS NULL                      -- 没打过 E 分
-  AND created_at >= NOW() - INTERVAL '24 hours'
-  AND category IN ('relationship_moment', 'fragments', 'heartbeat',
-                   'diary', 'preference', 'risk_boundary')
-ORDER BY created_at DESC
+FROM lmc5_curated_memories m
+WHERE m.version_status = 'current'
+  AND m.created_at >= NOW() - INTERVAL '24 hours'
+  AND m.category IN ('relationship_moment', 'fragments', 'heartbeat',
+                     'diary', 'preference', 'risk_boundary')
+  AND NOT EXISTS (
+      SELECT 1 FROM lmc5_e_axis_proposals p
+      WHERE p.memory_id = m.id AND p.status = 'pending'
+  )
+ORDER BY m.created_at DESC
 LIMIT %s
 """
 
-DEFAULT_ATTACH_SCORE_SQL = """
-UPDATE lmc5_curated_memories
-SET valence_v3 = %(valence)s,
-    arousal_v3 = %(arousal)s,
-    tension = %(tension)s,
-    response_tendency = %(response_tendency)s,
-    growth_delta = %(growth_delta)s,
-    emotion_confidence = %(confidence)s,
-    emotion_scorer = %(scorer)s,
-    emotion_rubric_version = %(rubric_version)s
-WHERE id = %(id)s
+DEFAULT_SUBMIT_PROPOSAL_SQL = """
+INSERT INTO lmc5_e_axis_proposals (
+    memory_id, valence, arousal, tension, response_tendency, growth_delta,
+    confidence, proposer, rubric_version
+) VALUES (
+    %(id)s, %(valence)s, %(arousal)s, %(tension)s, %(response_tendency)s,
+    %(growth_delta)s, %(confidence)s, %(scorer)s, %(rubric_version)s
+)
 """

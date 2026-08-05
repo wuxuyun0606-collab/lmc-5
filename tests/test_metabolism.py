@@ -100,6 +100,8 @@ def test_patrol_reports_high_tension_low_confidence(tmp_path):
             content="This needs another review.",
             tension=0.9,
             confidence=0.4,
+            e_authored_by="primary-agent",
+            e_initial_priority=80,
         )
 
         suggestions = patrol(store.conn)

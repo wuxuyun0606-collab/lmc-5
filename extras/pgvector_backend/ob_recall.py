@@ -5,9 +5,9 @@
 
 这一版补：
   1. OB 统一评分（Ombre Brain decay_engine 思路）
-     time_weight × importance × activation^0.3 × decay × emotion_weight × resolved_factor
+     time_weight × primary_initial_priority × activation^0.3 × decay × resolved_factor
   2. 分类半衰期表（heartbeat/identity 永不衰减；conversation 14 天）
-  3. 短期/长期分离（≤3 天时间主导，>3 天情感主导）
+  3. E 轴以主 AI 亲定的初始优先级为起点，再交给自动化管理
   4. Russell 圆环距离：情绪联想取最近邻
   5. 时间涟漪：检索命中后 ±48h 邻居获得临时 boost
   6. 衰减统一公式（写入端 + M 线代谢共用单一来源）
@@ -25,9 +25,6 @@ from typing import Callable, Optional
 
 
 # === 衰减参数 ===
-OB_EMOTION_BASE = 1.0
-OB_AROUSAL_BOOST = 0.8
-
 # 分类半衰期（天）。float('inf') = 永不衰减
 CATEGORY_HALF_LIVES = {
     "heartbeat": float("inf"),
@@ -82,7 +79,7 @@ def ob_score(memory: dict) -> float:
     """统一评分。
 
     memory 字段（都可选，缺省走默认）：
-        weight, hit_count, created_at, last_hit, arousal,
+        e_initial_priority, weight, hit_count, created_at, last_hit,
         protected, resolved, digested, activation_boost, category, source
 
     返回浮点分数（protected 记忆固定 999.0）。
@@ -92,11 +89,18 @@ def ob_score(memory: dict) -> float:
     if memory.get("protected"):
         return 999.0
 
-    try:
-        weight = float(memory.get("weight") or 1.0)
-    except (TypeError, ValueError):
-        weight = 1.0
-    importance = max(1.0, min(10.0, weight * 3.3))
+    initial_priority = memory.get("e_initial_priority")
+    if initial_priority is not None:
+        try:
+            importance = max(1.0, min(10.0, float(initial_priority) / 10.0))
+        except (TypeError, ValueError):
+            importance = 1.0
+    else:
+        try:
+            weight = float(memory.get("weight") or 1.0)
+        except (TypeError, ValueError):
+            weight = 1.0
+        importance = max(1.0, min(10.0, weight * 3.3))
 
     try:
         activation = min(30, max(1, int(memory.get("hit_count") or 1)))
@@ -110,11 +114,6 @@ def ob_score(memory: dict) -> float:
             ref_time = parsed
     days_since = 30.0 if ref_time is None else max(0.0, (datetime.now() - ref_time).total_seconds() / 86400)
 
-    try:
-        arousal = max(0.0, min(1.0, float(memory.get("arousal") or 0.3)))
-    except (TypeError, ValueError):
-        arousal = 0.3
-
     half_life = _get_half_life(memory)
     decay = 1.0 if half_life == float("inf") else math.exp(-math.log(2) * days_since / half_life)
 
@@ -124,19 +123,16 @@ def ob_score(memory: dict) -> float:
         act_boost = 0.0
     boost_factor = 1.0 + min(act_boost, 3.0) * 0.15
 
-    # 短期时间主导，长期情感主导
+    # 自动化从主 AI 的初始顺序出发，只管理时间、使用频率和生命周期。
     if days_since <= 3.0:
         time_dominance = 1.0
-        emotion_dominance = 0.6
     else:
         time_dominance = 0.5
-        emotion_dominance = 1.0
 
     base = (
         importance
         * (activation ** 0.3)
         * decay
-        * (OB_EMOTION_BASE + arousal * OB_AROUSAL_BOOST * emotion_dominance)
         * boost_factor
     )
     score = _ob_time_weight(days_since) * time_dominance * base
@@ -145,9 +141,6 @@ def ob_score(memory: dict) -> float:
         score *= 0.05
     if memory.get("digested"):
         score *= 0.3
-    if arousal > 0.7 and not memory.get("resolved"):
-        score *= 1.5
-
     return round(score, 4)
 
 

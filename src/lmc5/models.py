@@ -120,6 +120,8 @@ class MemoryRecord:
     tension: float | None = None
     confidence: float | None = None
     growth_delta: str = ""
+    e_authored_by: str = ""
+    e_initial_priority: int | None = None
     source: str = ""
     created_at: str | None = None
     updated_at: str | None = None
@@ -146,6 +148,8 @@ class MemoryRecord:
             "tension": self.tension,
             "confidence": self.confidence,
             "growth_delta": self.growth_delta,
+            "e_authored_by": self.e_authored_by,
+            "e_initial_priority": self.e_initial_priority,
             "source": self.source,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
