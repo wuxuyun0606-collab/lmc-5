@@ -164,6 +164,24 @@ class DreamResult:
     written_ids: list[int]
     safe_relations_written: int
     review_relations_queued: int
+    proposer_errors: int = 0
+    write_errors: int = 0
+
+
+class NightDreamError(RuntimeError):
+    """Base exception for retryable NightDream run failures."""
+
+
+class NightDreamProposerError(NightDreamError):
+    """The injected proposer failed before producing a valid candidate list."""
+
+
+class NightDreamWriteError(NightDreamError):
+    """A promoted candidate could not be durably written."""
+
+
+class NightDreamDedupError(NightDreamWriteError):
+    """Semantic duplicate detection failed before a candidate write."""
 
 
 def is_noise(text: str, min_len: int = 80) -> bool:
@@ -322,7 +340,10 @@ class NightDream:
 
     def extract(self, chunks: list[Chunk]) -> tuple[list[Candidate], int]:
         """提取候选。返回 (candidates, proposer_errors_count)。
-        proposer 报错不再吞掉——log + 返回错误计数，调用方能在 DreamResult 看到。
+
+        Provider adapters must raise on transport errors, timeouts, empty
+        response bodies, or response parse failures.  A successfully parsed
+        empty candidate list is valid and returns ``([], 0)``.
         """
         clean_chunks = [c for c in chunks if not is_noise(c.text)]
         if not clean_chunks:
@@ -332,23 +353,34 @@ class NightDream:
         except Exception as e:
             self.log.error("night_dream.extract: proposer raised %s: %s",
                            type(e).__name__, e, exc_info=True)
-            return [], 1
+            raise NightDreamProposerError(
+                f"night_dream proposer failed: {type(e).__name__}: {e}"
+            ) from e
+        if not isinstance(raw, list):
+            raise NightDreamProposerError(
+                "night_dream proposer must return a candidate list; "
+                f"got {type(raw).__name__}"
+            )
         out: list[Candidate] = []
-        skipped = 0
-        for r in raw:
-            if not isinstance(r, dict):
-                skipped += 1
-                continue
-            cand = normalize_candidate(r)
-            if cand:
-                out.append(cand)
-            else:
-                skipped += 1
-        if skipped:
-            self.log.info("night_dream.extract: %d raw candidates skipped at normalize", skipped)
+        for index, item in enumerate(raw):
+            if not isinstance(item, dict):
+                raise NightDreamProposerError(
+                    f"night_dream candidate[{index}] must be an object"
+                )
+            cand = normalize_candidate(item)
+            if cand is None:
+                raise NightDreamProposerError(
+                    f"night_dream candidate[{index}] failed schema validation"
+                )
+            out.append(cand)
         return out, 0
 
-    def gate(self, candidates: list[Candidate]) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
+    def gate(
+        self,
+        candidates: list[Candidate],
+        *,
+        enforce_max_promote: bool = True,
+    ) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
         """闸门链：阈值 → risk → 必须有 source → 批内去重 → max_promote 截断
 
         超过 max_promote 的候选不再静默 drop，进 rejected[reason='exceeds_max_promote']。
@@ -372,7 +404,7 @@ class NightDream:
                 rejected.append((cand, "duplicate_in_batch"))
                 continue
             seen.add(sig)
-            if len(promoted) >= self.max_promote:
+            if enforce_max_promote and len(promoted) >= self.max_promote:
                 rejected.append((cand, "exceeds_max_promote"))
                 continue
             promoted.append(cand)
@@ -451,30 +483,42 @@ class NightDream:
 
     def run(self, chunks: list[Chunk], apply: bool = False) -> DreamResult:
         candidates, proposer_errors = self.extract(chunks)
-        promoted, rejected = self.gate(candidates)
+        # Apply-mode capacity is consumed only by a durable writer ID. Semantic
+        # duplicates and idempotent writer skips must not starve later items.
+        eligible, rejected = self.gate(
+            candidates,
+            enforce_max_promote=not apply,
+        )
+        promoted: list[Candidate] = []
         written_ids: list[int] = []
         written_pairs: list[tuple[int, Candidate]] = []
         safe_n = review_n = 0
 
         if apply:
             if self.write_candidate is None:
-                self.log.error("night_dream.run: apply=True but write_candidate is None; "
-                               "nothing will be written")
+                message = "night_dream.run: apply=True requires write_candidate"
+                self.log.error(message)
+                raise NightDreamWriteError(message)
             else:
                 semantic_dedup_skipped = 0
-                for cand in promoted:
+                for cand in eligible:
+                    if len(promoted) >= self.max_promote:
+                        rejected.append((cand, "exceeds_max_promote"))
+                        continue
                     # 语义去重：写入前先用向量相似度查库；命中阈值就跳过
                     # （防止跨夜同义条目洪水——批内去重只管 (type, title) 签名）
                     if self.find_semantic_duplicates is not None:
                         try:
                             dup_ids = self.find_semantic_duplicates(cand) or []
                         except Exception as e:
-                            self.log.warning(
-                                "night_dream.run: find_semantic_duplicates failed for '%s': %s "
-                                "(skipping dedup check, will write)",
-                                cand.title[:40], e,
+                            self.log.error(
+                                "night_dream.run: find_semantic_duplicates failed for '%s': %s",
+                                cand.title[:40], e, exc_info=True,
                             )
-                            dup_ids = []
+                            raise NightDreamDedupError(
+                                "night_dream semantic dedup failed for "
+                                f"'{cand.title[:40]}': {type(e).__name__}: {e}"
+                            ) from e
                         if dup_ids:
                             rejected.append((cand, f"semantic_dup:{dup_ids[0]}"))
                             semantic_dedup_skipped += 1
@@ -488,26 +532,38 @@ class NightDream:
                         wid = self.write_candidate(cand)
                     except Exception as e:
                         self.log.error("night_dream.run: write_candidate failed for '%s': %s",
-                                       cand.title[:40], e)
+                                       cand.title[:40], e, exc_info=True)
+                        raise NightDreamWriteError(
+                            "night_dream candidate write failed for "
+                            f"'{cand.title[:40]}': {type(e).__name__}: {e}"
+                        ) from e
+                    if wid is None:
+                        rejected.append((cand, "idempotent_duplicate"))
+                        self.log.info(
+                            "night_dream.run: writer skipped idempotent duplicate '%s'",
+                            cand.title[:40],
+                        )
                         continue
-                    if wid is not None:
-                        written_ids.append(int(wid))
-                        written_pairs.append((int(wid), cand))
-                        # E 轴自动评分：dispatcher 内部按 trigger 规则决定是否调 scorer。
-                        # 异常永不阻塞主流程——E 分挂了，记忆还在。
-                        if self.e_axis_dispatcher is not None:
-                            try:
-                                self.e_axis_dispatcher.maybe_score(int(wid), cand)
-                            except Exception as e:
-                                self.log.warning(
-                                    "night_dream.run: e_axis dispatcher raised for #%s: %s",
-                                    wid, e,
-                                )
+                    promoted.append(cand)
+                    written_ids.append(int(wid))
+                    written_pairs.append((int(wid), cand))
+                    # E 轴自动评分：dispatcher 内部按 trigger 规则决定是否调 scorer。
+                    # 异常永不阻塞主流程——E 分挂了，记忆还在。
+                    if self.e_axis_dispatcher is not None:
+                        try:
+                            self.e_axis_dispatcher.maybe_score(int(wid), cand)
+                        except Exception as e:
+                            self.log.warning(
+                                "night_dream.run: e_axis dispatcher raised for #%s: %s",
+                                wid, e,
+                            )
                 if semantic_dedup_skipped:
                     self.log.info("night_dream.run: %d candidates skipped by semantic dedup",
                                   semantic_dedup_skipped)
                 if written_pairs:
                     safe_n, review_n = self.build_relations(written_pairs)
+        else:
+            promoted = eligible
         return DreamResult(
             chunks_used=len(chunks),
             candidates=candidates,
@@ -516,4 +572,6 @@ class NightDream:
             written_ids=written_ids,
             safe_relations_written=safe_n,
             review_relations_queued=review_n,
+            proposer_errors=proposer_errors,
+            write_errors=0,
         )
