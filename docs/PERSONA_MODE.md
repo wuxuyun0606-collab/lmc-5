@@ -19,7 +19,8 @@ The default LMC-5 defaults are tuned for coding agents. If you want a
 persona, you need a slightly different posture on five existing axes.
 This document is that posture.
 
-You do not need new tables. You need different policies.
+You need explicit authorship fields and different policies. The optional
+production proposal queue is separate from authoritative E records.
 
 ## Why The Distinction Matters
 
@@ -30,7 +31,7 @@ similar.
 | Axis | Coding agent default | Persona posture |
 |------|--------------------|----------------|
 | **Z — Fact evolution** | Auto-supersede yesterday's wrong answer | Manual gate. Identity facts and stated preferences must never be auto-overwritten by a noisy contradiction edge. |
-| **E — Experience signals** | Use `risk_level` to mark unsafe actions | Use valence/arousal/tension to shape the persona's response posture in the moment, not to gate facts. |
+| **E — Experience signals** | Use `risk_level` to mark unsafe actions | The primary agent writes E and chooses its initial priority; coordinates can shape posture but never gate facts. |
 | **M — Metabolism** | Low weight → archive | Identity and heartbeat categories never decay. A persona that forgets the user's name is worse than no persona. |
 | **Y — Relations** | `same_topic`, `temporal_sequence` are safe to auto-link | `emotional_link` and `relationship_moment` go through review. A persona's picture of a person is load-bearing. |
 | **Retrieval** | Recall on demand | Add proactive spontaneous recall. A persona that only speaks when queried is a chatbot, not a presence. |
@@ -98,36 +99,29 @@ conn.execute(
 )
 ```
 
-### 3. E-axis shadow period of at least 30 days
+### 3. The primary agent authors E and sets its initial order
 
-When you first wire an LLM-based E-axis scorer, it does **not** participate
-in ranking, retrieval order, or rerank for the first 30 days. It only
-attaches scores to records and waits.
+LMC-5 is available immediately. The user-facing agent writes each E record in
+its own words and chooses `e_initial_priority` (1–100). A housekeeper may
+surface a candidate, but it cannot author the record, fill missing E fields, or
+decide the starting order.
 
-Why: emotional scoring is volatile. Letting an immature scorer drive
-ranking makes the persona oscillate between "today I am cheerful" and
-"today I am withdrawn" in a way that looks like the system has a
-personality disorder, not a personality. Stabilize first, deploy later.
-
-**Configuration example.** `extras/pgvector_backend/e_axis_scorer.py`
-ships a helper so the shadow gate is enforced in code, not in
-discipline:
+**Configuration example.** Make authorship explicit at creation:
 
 ```python
-from extras.pgvector_backend.e_axis_scorer import is_in_shadow_period
-
-# Record when you first activated this rubric — switching rubric resets the window
-RUBRIC_STARTED_AT = datetime(2026, 6, 14)
-
-def rerank_with_optional_e_axis(records: list[dict]) -> list[dict]:
-    if is_in_shadow_period(RUBRIC_STARTED_AT, shadow_days=30):
-        # E-axis fields are attached but ignored for ranking
-        return rerank_without_e_axis(records)
-    return rerank_using_e_axis(records)
+store.add_memory(
+    title="The repair that changed my approach",
+    content="I learned to preserve the user's intent before optimizing structure.",
+    response_tendency="engage",
+    growth_delta="growth",
+    e_authored_by="primary-agent",
+    e_initial_priority=88,
+)
 ```
 
-Bump `shadow_days` to 60 or 90 if you change rubric versions often;
-shorten only when you have monitoring on scorer stability.
+After creation, M-axis automation may manage decay, hit count, activation, and
+reviewed lifecycle changes from that initial priority. It may not rewrite the
+authored E content or replace the primary agent's starting order.
 
 ### 4. Half-life table with `inf` rows
 
@@ -195,7 +189,8 @@ def spontaneous_recall(conn, k: int = 1) -> list[dict]:
     """Weighted random over high-vitality memories with deliberate drift."""
     candidates = conn.execute("""
         SELECT id, title, content, weight, hit_count, arousal, valence,
-               category, source, created_at, last_hit
+               category, source, created_at, last_hit,
+               e_authored_by, e_initial_priority
         FROM lmc5_curated_memories
         WHERE version_status = 'current' AND resolved = false
         ORDER BY created_at DESC
@@ -226,12 +221,13 @@ Z-axis judgement both honor `protected`:
 
 ```sql
 INSERT INTO lmc5_curated_memories
-  (source, category, title, content, protected, weight, arousal)
+  (source, category, title, content, protected, weight, arousal,
+   e_authored_by, e_initial_priority)
 VALUES
   ('manual', 'relationship_moment',
    'first time the agent was called by a private name',
    '... evidence ...',
-   true, 2.4, 0.7);
+   true, 2.4, 0.7, 'primary-agent', 96);
 ```
 
 ```python
@@ -269,7 +265,7 @@ A persona built on LMC-5 should be able to print something like this:
 Persona Mode Status:
   Identity records protected:    12 / 12  ✓
   Z-axis audit gate:             enabled (manual approve only)
-  E-axis shadow window:          18 days remaining
+  E-axis primary-authored:       12 / 12  ✓
   Half-life table loaded:        heartbeat=inf identity=inf core=90d
   Spontaneous recall scheduler:  3x / day, weighted random with drift
   Last hippocampus run:          2026-06-13 04:00 (chunks=42 promoted=3)

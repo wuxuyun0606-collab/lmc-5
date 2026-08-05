@@ -18,20 +18,23 @@ Every curated memory can carry emotional coordinates:
 
 | Field | Range | Meaning |
 |-------|-------|---------|
+| `e_authored_by` | string | Primary agent that personally wrote the E content |
+| `e_initial_priority` | 1 to 100 | Initial order chosen by that primary agent |
 | `valence` | -1.0 to 1.0 | Negative to positive affect |
 | `arousal` | 0.0 to 1.0 | Calm to activated |
 | `tension` | 0.0 to 1.0 | Relaxed to strained |
-| `confidence` | 0.0 to 1.0 | Scorer's confidence in this rating |
+| `confidence` | 0.0 to 1.0 | Primary author's confidence in this annotation |
 | `response_tendency` | string | `comfort` / `engage` / `withdraw` / `alert` |
 | `growth_delta` | string | `growth` / `stable` / `setback` |
 
-These are scored by `e_axis_scorer.py` — a provider-agnostic LLM scorer
-that reads the memory content and outputs a JSON rating.
+The primary agent writes these fields together with the E content.
+`e_axis_scorer.py` can create a provider-agnostic proposal for review, but its
+output has no authority until the primary agent decides what to write.
 
 The minimal core enforces the numeric ranges at write time through
 `MemoryStore.add_memory()`: `valence` must be between `-1.0` and `1.0`, while
 `arousal`, `tension`, and `confidence` must be between `0.0` and `1.0`.
-Scorers may be noisy; the store should not be.
+Proposal models may be noisy; the store should not be.
 
 ### 2. Real-Time Detection (what is happening right now)
 
@@ -45,28 +48,31 @@ See [HEARTBEAT_AND_EMOTION_FORMAT.md](HEARTBEAT_AND_EMOTION_FORMAT.md)
 for the full storage format, BPM reference table, depth scale, chord
 annotation, and E:5-code tags.
 
-## Scoring Architecture
+## Authorship and Initial Order
 
-### What Gets Scored
+E content belongs to the primary, user-facing agent—the agent that actually
+experienced the interaction and chose the response. That agent must:
 
-Not everything. `e_axis_trigger.py` gates which memories are worth scoring:
+1. write the E entry in its own words;
+2. identify itself in `e_authored_by`; and
+3. choose `e_initial_priority` from 1–100.
 
-- **Always score:** `relationship_moment`, `risk_boundary`, `preference`
-- **Score if keywords hit:** `fact`, `engineering_decision` — only when
-  emotional keywords are detected in the content
-- **Never score (unless keywords):** pure technical facts, tool logs
-- **Default:** don't score (conservative)
+Higher priority means the primary agent wants that experience to begin nearer
+the front of E recall. After that initial order is stored, M-axis automation
+may apply time decay, hit counts, activation boosts, and reviewed lifecycle
+changes. Automation manages the ordering from the chosen starting point; it
+does not invent the starting point.
 
-### Shadow Period
+The authored fields and `e_initial_priority` are immutable. If the primary
+agent's understanding changes, it writes a successor E record and lets Z/M
+preserve the history; an automated job never edits the original experience in
+place.
 
-New E-axis scorers should run in shadow mode for 30+ days before their
-scores influence recall ranking. During shadow, scores are written to the
-memory but not used by `ob_recall` for sorting.
-
-Why: E-axis scores are more volatile than vector similarity. A scorer
-that runs hot (high arousal on everything) or cold (flat valence) will
-distort the entire recall experience. Shadow period lets you measure
-coverage and stability before going live.
+A housekeeper or scoring model may submit a proposal to
+`lmc5_e_axis_proposals`. It may not write authoritative E fields, assign the
+initial priority, or backfill missing E entries. No calendar waiting period is
+required: LMC-5 is usable immediately, and primary-authored E records enter
+with their explicit initial order.
 
 ### Provider Bias
 
@@ -75,8 +81,8 @@ valence; Claude tends to be more "expressive" on arousal. If you switch
 scoring providers, run a calibration batch: score the same set of seed
 memories with both models and compare distributions.
 
-`e_axis_scorer.py` records `provider` and `model` on every score for
-exactly this reason.
+`e_axis_scorer.py` therefore produces non-authoritative proposals only. Model
+metadata exists for audit, not ownership.
 
 ## Russell Emotion Space
 

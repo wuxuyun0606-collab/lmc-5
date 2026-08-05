@@ -35,7 +35,7 @@ LMC-5 在同一 XYZEM 模型下提供**两套**参考实现，对应不同的部
 | 召回 | FTS5 关键词 + 便携余弦 | 三层级联（向量 → curated FTS → raw-events FTS）+ 独立通道（literal raw-events / raw_chunk 桥 / Y 轴关系图 2 跳 / Russell 情绪 / 自发浮现）+ 可选 rerank |
 | 海马体 | 确定性切块 | LLM 提议候选 + 安全闸门 + 语义去重 |
 | 反思层 | — | 周报 / 月报叙事索引 |
-| E 轴 | 字段占位 | provider-agnostic LLM 评分器 + 重试 + min-confidence + 影子期 helper |
+| E 轴 | 主 AI 亲自写入 | 主 AI 决定 E 内容与初始排序；自动化只在写入后管理 |
 | Hook | — | `SessionStart` / `UserPromptSubmit` / `SessionEnd` 三个 Claude Code 钩子 |
 | 运维 | — | Forge（会话连续性）+ 精炼续窗 + Swap（快照回滚）参考模式 |
 | 适合 | 原型、demo、<5k 向量、离线 | VPS 7×24 部署、persona 级 agent、跨月连续性 |
@@ -65,7 +65,7 @@ Production 版需要 PostgreSQL 和至少一个 embedder API key——见
 > [`docs/IMPLEMENTATION_ORDER.md`](docs/IMPLEMENTATION_ORDER.md)。前者解释
 > **五轴如何接成写入、夜间、召回三条闭环**；后者按阶段说明先做 X/Z
 > 安全底座和 M 巡检，再做 Y 写入、Y 二跳带类型加权读取，最后接
-> hippocampus 关系构建、E 轴 shadow scoring 和 production cron。
+> hippocampus 关系构建、主 AI 的 E 轴写入与提案复核、production cron。
 
 ### 五线自动化速查
 
@@ -77,7 +77,7 @@ LMC-5 有自动化流程，但前提是**你已经接好 callable 并加进 cron
 | **X** | 能：`consolidate`、`timeline_sweep(thread)` 和只读 `other` 孵化巡检可以夜间跑。 | 线程命名、拆线/合线、叙事解释。 |
 | **Y** | 能：hippocampus pass 可以自动写安全关系边。 | `contradicts`、`cause_effect`、`supports` 和大规模图清理。 |
 | **Z** | 半自动：`z_audit` 可以把矛盾/覆盖候选放进审计队列。 | 真正 supersede 当前事实。 |
-| **E** | 能：heartbeat detection 和 E 轴 backfill 可以批处理/影子期运行。 | 噪声分数在验证前影响排序。 |
+| **E** | 主 AI 亲自写 E 并决定初始排序；自动化随后管理。 | housekeeper/scorer 只能提案，须经主 AI 复核。 |
 | **M** | 半自动：patrol 只读且可调度；召回/浮现门禁在检索时计算；衰减/去重任务要单独接。 | 归档、删除、合并、降权，以及正式 X 线拆分。 |
 
 完整验收清单见

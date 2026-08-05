@@ -106,6 +106,56 @@ def test_add_memory_validates_e_axis_ranges(tmp_path, field, value):
             store.add_memory(title="Bad E axis", content="Out of range.", **{field: value})
 
 
+def test_e_axis_requires_primary_authorship_and_initial_priority(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        with pytest.raises(ValueError, match="primary agent"):
+            store.add_memory(title="E", content="Primary experience.", tension=0.8)
+
+        record, created = store.add_memory(
+            title="E",
+            content="Primary experience.",
+            tension=0.8,
+            e_authored_by="primary-agent",
+            e_initial_priority=91,
+        )
+
+    assert created is True
+    assert record.e_authored_by == "primary-agent"
+    assert record.e_initial_priority == 91
+
+
+def test_raw_sql_cannot_bypass_e_axis_primary_authorship(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        with pytest.raises(Exception, match="primary-agent authorship"):
+            store.conn.execute(
+                "INSERT INTO memories (title, content, tension, content_hash) "
+                "VALUES (?, ?, ?, ?)",
+                ("Bypass", "Not allowed.", 0.8, "bypass-e-axis"),
+            )
+
+
+def test_e_axis_authored_content_and_initial_order_are_immutable(tmp_path):
+    db = tmp_path / "memory.sqlite"
+    with MemoryStore(db) as store:
+        store.init()
+        record, _ = store.add_memory(
+            title="E",
+            content="Written by the primary agent.",
+            tension=0.6,
+            e_authored_by="primary-agent",
+            e_initial_priority=85,
+        )
+        with pytest.raises(Exception, match="immutable"):
+            store.conn.execute(
+                "UPDATE memories SET e_initial_priority = 5 WHERE id = ?",
+                (record.id,),
+            )
+
+
 def test_recall_redacts_output(tmp_path):
     db = tmp_path / "memory.sqlite"
     with MemoryStore(db) as store:

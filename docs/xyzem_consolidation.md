@@ -82,14 +82,18 @@ pending audit rows.
 Open-source LMC-5 should treat E as salience, not as private roleplay. Useful
 signals include:
 
+- primary-agent authorship (`e_authored_by`)
+- primary-agent initial order (`e_initial_priority`)
 - risk
 - urgency
 - tension
 - confidence
 - valence/arousal when relevant
 
-These signals help decide what to surface, protect, or review. They do not prove
-that an agent has human emotions.
+The primary agent writes these signals and chooses their initial order. M-axis
+automation may manage them afterward. A housekeeper can propose, but cannot
+author or backfill E. These signals do not prove that an agent has human
+emotions.
 
 ### M: Metabolism
 

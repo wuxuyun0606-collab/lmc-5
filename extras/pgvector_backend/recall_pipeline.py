@@ -1577,9 +1577,8 @@ def emotion_resonate_adapter(
     流程：
       1. 用 user_emotion_detector 把 query → (valence, arousal) 坐标
          不传则走默认双语关键词检测
-      2. 从 eligible_categories 类目里拉候选（resolved=false, weight>1.0,
-         valence/arousal 非空）
-      3. ob_recall.resonance_score 计算每条的共鸣分
+      2. 只拉取由主 AI 写入并设定初始优先级的 E 候选
+      3. 情绪距离做相关性，主 AI 初始优先级做排序起点
       4. 按共鸣分排序，过 min_resonance 阈值，返回 top_k
 
     传 detector=None 时用 hooks/user_prompt_submit.detect_user_emotion 的关键词版兜底。
@@ -1614,15 +1613,18 @@ def emotion_resonate_adapter(
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, title, content, weight, hit_count, arousal, valence, "
-                f"       resolved, protected, created_at, last_hit, category, source "
+                f"       resolved, protected, created_at, last_hit, category, source, "
+                f"       e_authored_by, e_initial_priority "
                 f"FROM {table_curated} "
                 f"WHERE version_status = 'current' "
                 f"  AND category = ANY(%s) "
                 f"  AND (resolved IS NULL OR resolved = false) "
                 f"  AND valence IS NOT NULL AND arousal IS NOT NULL "
+                f"  AND e_authored_by IS NOT NULL AND e_authored_by != '' "
+                f"  AND e_initial_priority IS NOT NULL "
                 f"  AND (valence != 0 OR arousal != 0.5) "
                 f"  AND weight >= 1.0 "
-                f"ORDER BY weight DESC LIMIT 200",
+                f"ORDER BY e_initial_priority DESC LIMIT 200",
                 (cat_array,),
             )
             rows = cur.fetchall()
@@ -1635,6 +1637,7 @@ def emotion_resonate_adapter(
                 "resolved": r[7], "protected": r[8],
                 "created_at": r[9], "last_hit": r[10],
                 "category": r[11], "source": r[12],
+                "e_authored_by": r[13], "e_initial_priority": r[14],
             }
             res = ob_recall.resonance_score(coord, mem)
             if res < min_resonance:

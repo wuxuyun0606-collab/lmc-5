@@ -23,6 +23,8 @@ def main() -> None:
                 risk_level="high",
                 urgency="high",
                 response_tendency="Start with risk boundaries before implementation.",
+                e_authored_by="demo-primary-agent",
+                e_initial_priority=95,
             )
             verify, _ = store.add_memory(
                 title="Post-change verification",

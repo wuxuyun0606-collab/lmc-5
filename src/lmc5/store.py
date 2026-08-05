@@ -395,6 +395,8 @@ def _row_to_memory(row: sqlite3.Row) -> MemoryRecord:
         tension=row["tension"],
         confidence=row["confidence"],
         growth_delta=row["growth_delta"] or "",
+        e_authored_by=(row["e_authored_by"] or "") if "e_authored_by" in row.keys() else "",
+        e_initial_priority=row["e_initial_priority"] if "e_initial_priority" in row.keys() else None,
         source=row["source"] or "",
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -478,6 +480,10 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 tension REAL,
                 confidence REAL,
                 growth_delta TEXT NOT NULL DEFAULT '',
+                e_authored_by TEXT NOT NULL DEFAULT '',
+                e_initial_priority INTEGER CHECK (
+                    e_initial_priority IS NULL OR e_initial_priority BETWEEN 1 AND 100
+                ),
                 source TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -690,6 +696,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             """
         )
         self._ensure_memory_columns()
+        self._ensure_e_axis_triggers()
         self.rebuild_index()
         self.rebuild_entity_index()
         self.conn.commit()
@@ -701,6 +708,52 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         }
         if "last_hit_at" not in columns:
             self.conn.execute("ALTER TABLE memories ADD COLUMN last_hit_at TEXT")
+        if "e_authored_by" not in columns:
+            self.conn.execute("ALTER TABLE memories ADD COLUMN e_authored_by TEXT NOT NULL DEFAULT ''")
+        if "e_initial_priority" not in columns:
+            self.conn.execute(
+                "ALTER TABLE memories ADD COLUMN e_initial_priority INTEGER "
+                "CHECK (e_initial_priority IS NULL OR e_initial_priority BETWEEN 1 AND 100)"
+            )
+
+    def _ensure_e_axis_triggers(self) -> None:
+        self.conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS memories_e_primary_authorship_insert;
+            DROP TRIGGER IF EXISTS memories_e_primary_authorship_update;
+
+            CREATE TRIGGER memories_e_primary_authorship_insert
+            BEFORE INSERT ON memories
+            WHEN (
+                NEW.response_tendency != '' OR NEW.valence IS NOT NULL
+                OR NEW.arousal IS NOT NULL OR NEW.tension IS NOT NULL
+                OR NEW.growth_delta != '' OR NEW.e_authored_by != ''
+                OR NEW.e_initial_priority IS NOT NULL
+            ) AND (
+                NEW.e_authored_by = '' OR NEW.e_initial_priority IS NULL
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'E-axis requires primary-agent authorship and initial priority');
+            END;
+
+            CREATE TRIGGER memories_e_primary_authorship_update
+            BEFORE UPDATE OF response_tendency, valence, arousal, tension,
+                             growth_delta, e_authored_by, e_initial_priority
+            ON memories
+            WHEN (
+                NEW.response_tendency IS NOT OLD.response_tendency
+                OR NEW.valence IS NOT OLD.valence
+                OR NEW.arousal IS NOT OLD.arousal
+                OR NEW.tension IS NOT OLD.tension
+                OR NEW.growth_delta IS NOT OLD.growth_delta
+                OR NEW.e_authored_by IS NOT OLD.e_authored_by
+                OR NEW.e_initial_priority IS NOT OLD.e_initial_priority
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'E-axis authored content and initial priority are immutable; create a successor record');
+            END;
+            """
+        )
 
     def rebuild_index(self) -> None:
         self.conn.execute("DELETE FROM memories_fts")
@@ -768,6 +821,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         tension: float | None = None,
         confidence: float | None = None,
         growth_delta: str = "",
+        e_authored_by: str = "",
+        e_initial_priority: int | None = None,
         source: str = "",
     ) -> tuple[MemoryRecord, bool]:
         validate_choice("status", status, FACT_STATUSES)
@@ -777,6 +832,25 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         _validate_optional_range("arousal", arousal, 0.0, 1.0)
         _validate_optional_range("tension", tension, 0.0, 1.0)
         _validate_optional_range("confidence", confidence, 0.0, 1.0)
+        if e_initial_priority is not None and not 1 <= int(e_initial_priority) <= 100:
+            raise ValueError("e_initial_priority must be between 1 and 100")
+        has_e_content = any(
+            value not in (None, "")
+            for value in (
+                response_tendency,
+                valence,
+                arousal,
+                tension,
+                growth_delta,
+                e_authored_by,
+                e_initial_priority,
+            )
+        )
+        if has_e_content and (not e_authored_by.strip() or e_initial_priority is None):
+            raise ValueError(
+                "E-axis content requires e_authored_by and e_initial_priority; "
+                "the primary agent must author and initially order it"
+            )
         if not title.strip():
             raise ValueError("title is required")
         if not content.strip():
@@ -816,9 +890,10 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             INSERT INTO memories (
                 title, content, thread, category, tags_json, fact_key,
                 active_fact, status, risk_level, urgency, response_tendency,
-                valence, arousal, tension, confidence, growth_delta, source,
+                valence, arousal, tension, confidence, growth_delta,
+                e_authored_by, e_initial_priority, source,
                 content_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 clean_title,
@@ -837,6 +912,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 tension,
                 confidence,
                 growth_delta.strip(),
+                e_authored_by.strip(),
+                e_initial_priority,
                 source.strip(),
                 digest,
             ),
@@ -2149,6 +2226,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 tension=data.get("tension"),
                 confidence=data.get("confidence"),
                 growth_delta=data.get("growth_delta", ""),
+                e_authored_by=data.get("e_authored_by", ""),
+                e_initial_priority=data.get("e_initial_priority"),
                 source=data.get("source", ""),
             )
             if record and is_new:

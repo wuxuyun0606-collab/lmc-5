@@ -44,8 +44,8 @@ model:
   (halfvec, ivfflat ANN), LLM-proposed hippocampus with safety gates
   and semantic dedup, weekly/monthly narrative reflection, OB-style
   recall scoring with category half-lives and time ripple,
-  provider-agnostic E-axis emotional scorer with retry and shadow-period
-  policy, spontaneous-recall scheduler with time-of-day shaping,
+  primary-agent-authored E records with explicit initial priority plus a
+  non-authoritative proposal queue, spontaneous-recall scheduling,
   five-channel parallel recall pipeline (vector + FTS fallback + Y-axis
   graph 2-hop + Russell emotional resonance + spontaneous), Claude Code
   hook entrypoints (SessionStart / UserPromptSubmit / SessionEnd),
@@ -62,7 +62,7 @@ Operational patterns documented in the repository:
 
 - **Persona Mode** (`docs/PERSONA_MODE.md`) — six policy switches for
   using LMC-5 as the foundation of a long-living AI companion
-  (identity protected, Z manual gate, E shadow period, category
+  (identity protected, Z manual gate, primary-authored E order, category
   half-lives, spontaneous recall, relationship moments protected).
 - **Forge** (`docs/FORGE_AND_SWAP.md`) — recoverable session continuity
   when the application LLM hits its context window or quota ceiling.
@@ -116,7 +116,7 @@ reference implementation, while keeping the minimal impl fully offline:
   Anthropic Haiku on the structured-output tasks that LMC-5 routes
   through the `housekeeper` role: candidate-proposing hippocampus,
   Z-axis contradiction judgment, relation labeling, dedup decisions,
-  emotional scoring, narrative reflection.
+  non-authoritative E proposals, narrative reflection.
 - **Recall quality benchmarks.** Compare plain RAG, vector-only recall,
   and the five-channel LMC-5 pipeline (vector + FTS fallback + Y-axis
   graph expansion + emotional resonance + spontaneous) across
@@ -128,9 +128,9 @@ reference implementation, while keeping the minimal impl fully offline:
 - **Embedder migration validation.** Compare Gemini-embedding-2,
   Voyage-3-large, OpenAI text-embedding-3, and local BGE-M3 on the
   same corpus using the production recall pipeline.
-- **Persona-mode stability.** Run shadow-period stability tracking on
-  the E-axis scorer across model providers to validate the 30-day
-  minimum.
+- **Persona-mode stability.** Verify that every E record was authored and
+  initially ordered by the primary agent, while housekeeper output remains in
+  the proposal queue until reviewed.
 - **Documentation and reproducibility fixtures.** Generate benchmark
   scripts and result tables that other open-source memory projects
   can reuse.

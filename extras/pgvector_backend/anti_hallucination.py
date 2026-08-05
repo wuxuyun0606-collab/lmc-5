@@ -65,7 +65,8 @@ HIPPOCAMPUS_TASK_REMINDERS = """
 """
 
 E_AXIS_TASK_REMINDERS = """
-本任务（E 轴情绪打分）的特别提醒：
+本任务（E 轴非权威 proposal）的特别提醒：
+- 你不是 E 轴作者，不得直接写入主记录或决定初始排序
 - valence/arousal/tension 是对**记忆原文呈现的情绪**的描述，不是你的共情
 - 原文中性 → valence ≈ 0，不要因为"agent 应该共情"就拔高
 - 不确定就调低 confidence，但 confidence < 0.3 的会被本地闸门丢弃，所以宁可拒答

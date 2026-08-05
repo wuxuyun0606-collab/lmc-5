@@ -77,8 +77,8 @@ Drop one entry per job into the VPS user's crontab:
 
 ```cron
 # nightly: full dream pipeline
-#   consolidate → hippocampus (incl. Y relation build) → heartbeat
-#   → e_axis_backfill → timeline_sweep(each X-line)
+#   consolidate → hippocampus (incl. Y relation build) → heartbeat proposals
+#   → timeline_sweep(each X-line)
 #   → narrative (weekly + monthly when due) → z_audit → patrol
 0 4 * * *  cd /opt/lmc5-agent && /opt/lmc5-agent/.venv/bin/python -m extras.pgvector_backend.dream_runner >> logs/nightly.log 2>&1
 ```

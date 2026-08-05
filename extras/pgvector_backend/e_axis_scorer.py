@@ -1,15 +1,15 @@
-"""E 轴 LLM 评分 · provider-agnostic 版
+"""E 轴非权威建议器 · provider-agnostic 版
 
 对应 lmc-5 core 的 E 轴：
 原本只占了 valence/arousal/tension 三个字段位，没有写"怎么打分"的实现。
-这一版补上 LLM scorer 框架，但完全 provider-free：
+这一版只生成供主 AI 审阅的 proposal，不拥有 E 轴写入权：
   - 不绑 DeepSeek / OpenAI / Anthropic 任何一家
   - LLM 调用走 Callable，调用方提供"prompt → JSON 字典"的回调
   - 失败日志按类别记录（http_timeout / parse_fail / schema_fail / range_fail ...）
   - 字段验证、夹值、敏感词降级——全本地做
 
-rubric 是行为评分量规——决定打分维度。这里给一个默认 rubric 引子，
-真正落地时调用方要提供自己的（按情绪学派/产品需求自定）。
+主 AI 必须亲自写 E 内容并给出初始顺序。自动化可在其后管理，但 scorer
+输出不得直接写入 curated E 字段。
 """
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ def validate(parsed: dict) -> tuple[Optional[EAxisScore], Optional[str]]:
 
 
 class EAxisScorer:
-    """E 轴评分器 · 给 lmc-5 用户挂任意 LLM 后端
+    """E 轴非权威建议器 · 给 proposal queue 挂任意 LLM 后端
 
     用法：
         def my_llm(prompt: str, timeout: int) -> str:
@@ -138,7 +138,9 @@ class EAxisScorer:
             scorer_name="my-llm-v1",
             rubric_version="v1.0",
         )
-        score = scorer.score(title="...", content="...")
+        proposal = scorer.score(title="...", content="...")
+
+    返回值不得直接写入 curated E 字段；主 AI 审阅后亲自撰写并设定初始优先级。
     """
 
     def __init__(
@@ -278,43 +280,12 @@ class EAxisScorer:
 INTEGRATION_NOTE = """
 集成到 lmc-5 的两个建议：
 
-1. 影子期（建议至少 30 天 / Shadow period: at least 30 days）
-   E 轴评分前 30 天不参与 score / rerank / 排序，只挂在记忆上等审。
-   原因：E 轴打分不稳定时，让它直接影响检索会污染整个排序系统。
-   等覆盖率/稳定率达标再开闸。
+1. 主 AI 拥有 E 轴首写权和首排权
+   scorer 只能提交 proposal，不能写入 E 主记录，也不能设置初始排序。
+   主 AI 亲自写下 E 内容并设置 e_initial_priority 后，自动化才可管理。
 
 2. 不要让 E 轴覆盖事实
    E 轴是"应对姿态"层，不是"什么是真"层。
    tension 高 ≠ 事实失效。response_tendency=withdraw ≠ 不许调用。
    覆盖判定走 Z 轴 z_conflict_audits，E 轴只调注入语气和优先级。
 """
-
-
-# === 影子期 helper（让"E 轴不参与排序"在代码里也成立）===
-
-def is_in_shadow_period(
-    rubric_started_at,
-    shadow_days: int = 30,
-    now=None,
-) -> bool:
-    """判断 E 轴是否仍在影子期（不应参与排序）。
-
-    用法：rerank 路径里 `if is_in_shadow_period(scorer_first_seen_at): ignore_e_axis()`。
-    rubric_started_at 取你部署/换 rubric 的时间。换 rubric 等于影子期重置。
-
-    给排序层一个明确的门，比"靠人记得别用"靠谱得多。
-    """
-    from datetime import datetime, timedelta
-    if rubric_started_at is None:
-        return True  # 没记开始时间默认按影子期处理，保守
-    if not isinstance(rubric_started_at, datetime):
-        try:
-            rubric_started_at = datetime.fromisoformat(str(rubric_started_at))
-        except Exception:
-            return True
-    ref = now or datetime.now()
-    if rubric_started_at.tzinfo is not None:
-        rubric_started_at = rubric_started_at.replace(tzinfo=None)
-    if ref.tzinfo is not None:
-        ref = ref.replace(tzinfo=None)
-    return (ref - rubric_started_at) < timedelta(days=shadow_days)

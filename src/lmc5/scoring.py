@@ -104,16 +104,14 @@ def priority_score(record: Any, now: datetime | None = None) -> float:
     score += freshness_bonus(get("created_at"), now=now)
     score += min(int(get("hit_count", 0) or 0) * 0.1, 1.0)
 
-    growth_delta = get("growth_delta", "")
-    if growth_delta:
-        score += 0.3
-
-    tension = get("tension", None)
-    confidence = get("confidence", None)
-    if tension is not None and tension >= 0.6:
-        score += 0.3
-    if tension is not None and tension >= 0.6 and confidence is not None and confidence < 0.6:
-        score -= 0.5
+    # E begins with the primary agent's explicit ordering. Numeric emotion
+    # annotations and housekeeper judgments never invent the initial rank.
+    e_initial_priority = get("e_initial_priority", None)
+    if e_initial_priority is not None:
+        try:
+            score += max(1, min(100, int(e_initial_priority))) / 50.0
+        except (TypeError, ValueError):
+            pass
 
     return round(score, 3)
 

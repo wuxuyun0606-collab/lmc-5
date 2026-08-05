@@ -98,17 +98,17 @@ Memory decay itself does **not** go through an LLM — it is a
 deterministic formula (Ebbinghaus B-curve with category-aware
 half-lives). The housekeeper only decides edge cases, not bulk decay.
 
-### 5. E-Axis · Emotional Scoring
+### 5. E-Axis · Proposal Only
 
-For records whose application context warrants emotional metadata, the
-housekeeper scores (`valence`, `arousal`, `tension`, `confidence`,
-`response_tendency`, `growth_delta`) against a rubric. Failure modes
-are categorized (`http_timeout / parse_fail / schema_fail / range_fail
-/ ...`) and logged, so you can audit which records are stable and
-which ones are scorer-unstable.
+The housekeeper does not author E records and does not assign their initial
+order. It may score a candidate against a rubric and submit the result to
+`lmc5_e_axis_proposals` for the primary agent to inspect. The primary agent
+must then write the E content in its own words and choose
+`e_initial_priority`. Automated E backfill is forbidden.
 
 Reference implementation:
-[`extras/pgvector_backend/e_axis_scorer.py`](../extras/pgvector_backend/e_axis_scorer.py).
+[`extras/pgvector_backend/e_axis_scorer.py`](../extras/pgvector_backend/e_axis_scorer.py)
+and [`extras/pgvector_backend/e_axis_trigger.py`](../extras/pgvector_backend/e_axis_trigger.py).
 
 ### 6. Narrative Timeline · Reflection
 

@@ -4,7 +4,7 @@ Public surface:
   PgvectorStore           vector_pgvector  — pgvector + halfvec + ivfflat ANN
   NightDream              night_dream      — LLM-proposed hippocampus + safety gates
   NarrativeTimeline       narrative_timeline — weekly / monthly reflection
-  EAxisScorer             e_axis_scorer    — provider-agnostic emotional scorer
+  EAxisScorer             e_axis_scorer    — provider-agnostic proposal helper
   DreamRunner/Schedule    dream_runner     — nightly 04:00 orchestration
   Nap                     nap              — session-switch lightweight maintenance
   Patrol                  patrol           — nightly structural cleanup + health
