@@ -10,8 +10,6 @@
 
 **要可恢复的连续性，不要幻想无限上下文。**
 
-![LMC-5 七月更新封面：手绘分层检索与做梦系统海报，LMC-5 小队站在四层记忆栈前。](docs/assets/cover-july-update.jpg)
-
 任何模型的上下文窗口都有上限。也许是 100k tokens，也许是 1M，也许未来会更大。
 但它仍然不是无限的；上下文越长，成本越高，噪声越多，也越脆弱。
 
@@ -703,6 +701,15 @@ Alpha。API 还很小，之后可能变化。目前目标是让这套坐标模�
 - 增加 Markdown / JSONL 记忆日志迁移工具。
 - 增加长时间 coding-agent 任务的 benchmark fixtures。
 - 增加可选模型辅助抽取：fact keys 和 relation candidates。
+
+## 社区架构笔记
+
+[![木叶基于代码绘制的 LMC-5 独立架构研究图](docs/assets/community/muye-lmc5-architecture-web.png)](docs/assets/community/muye-lmc5-architecture-original.png)
+
+**木叶绘制的独立架构研究图，经本人授权收录。**这是一份基于代码的第三方解读，
+不是 LMC-5 官方规范。图中标为“Our local engineering layer — private downstream,
+not upstreamed”的区域记录的是绘图者的本地下游增强，不属于 upstream LMC-5。
+点击图片可查看高清原图。
 
 ## 鸣谢
 
