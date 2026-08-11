@@ -868,13 +868,13 @@ platform.
 
 ## Community architecture note
 
-[![Independent code-level architecture study of LMC-5 by 木叶](docs/assets/community/muye-lmc5-architecture-web.png)](docs/assets/community/muye-lmc5-architecture-original.png)
+![Independent code-level architecture study of LMC-5 by 木叶](docs/assets/community/muye-lmc5-architecture.png)
 
 **Independent architecture study by 木叶, reproduced with permission.** It is
 a code-level interpretation of LMC-5 rather than an official specification.
 The panel labelled “Our local engineering layer — private downstream, not
 upstreamed” documents the illustrator's local extensions and is not part of
-upstream LMC-5. Click the image for the full-resolution original.
+upstream LMC-5.
 
 ## Acknowledgements
 

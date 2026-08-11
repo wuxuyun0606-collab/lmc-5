@@ -704,12 +704,11 @@ Alpha。API 还很小，之后可能变化。目前目标是让这套坐标模�
 
 ## 社区架构笔记
 
-[![木叶基于代码绘制的 LMC-5 独立架构研究图](docs/assets/community/muye-lmc5-architecture-web.png)](docs/assets/community/muye-lmc5-architecture-original.png)
+![木叶基于代码绘制的 LMC-5 独立架构研究图](docs/assets/community/muye-lmc5-architecture.png)
 
 **木叶绘制的独立架构研究图，经本人授权收录。**这是一份基于代码的第三方解读，
 不是 LMC-5 官方规范。图中标为“Our local engineering layer — private downstream,
 not upstreamed”的区域记录的是绘图者的本地下游增强，不属于 upstream LMC-5。
-点击图片可查看高清原图。
 
 ## 鸣谢
 
