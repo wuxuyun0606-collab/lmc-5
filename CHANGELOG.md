@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Licensing
+
+- **0.3.0 license transition.** Public releases from 0.3.0 onward use
+  `AGPL-3.0-or-later`, with separate commercial licensing available for
+  proprietary use. Releases through `v0.2.0` remain under their original MIT
+  License; the change does not revoke prior grants.
+- Added `LICENSING.md`, `COMMERCIAL-LICENSE.md`, and `NOTICE`, plus contributor
+  safeguards for future dual licensing.
+
 ### Added
 - **Primary-agent E-axis authorship.** E content now records
   `e_authored_by` and `e_initial_priority`. The primary/user-facing agent

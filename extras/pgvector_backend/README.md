@@ -216,4 +216,7 @@ own integration tests.
 
 ## License
 
-Same as the parent project (MIT).
+Same as the parent project: `AGPL-3.0-or-later` from version 0.3.0, with a
+separate commercial-licensing path for proprietary use. Releases through
+`v0.2.0` remain under their original MIT License. See the repository root
+`LICENSING.md`.

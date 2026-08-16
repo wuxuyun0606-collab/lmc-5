@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmc5"
-version = "0.2.0"
+version = "0.3.0"
 description = "Living Memory Coordinate-5: five-axis memory architecture for long-running LLM agents. Minimal SQLite + production PostgreSQL/pgvector reference impls."
 readme = "README.md"
 requires-python = ">=3.9"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 authors = [
-  { name = "LMC-5 contributors" }
+  { name = "wuxuyun0606-collab" }
 ]
 keywords = ["ai-memory", "agents", "long-term-memory", "sqlite", "pgvector", "persona", "claude-code", "anti-hallucination"]
 classifiers = [

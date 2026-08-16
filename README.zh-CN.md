@@ -696,6 +696,18 @@ LMC-5 分成两层：
 Alpha。API 还很小，之后可能变化。目前目标是让这套坐标模型可测试、可迁移、可审计，
 而不是立刻变成完整记忆平台。
 
+## 许可证
+
+LMC-5 从 0.3.0 起采用 **AGPL-3.0-or-later**。AGPL 允许商用，但修改后通过
+网络提供服务时，必须履行相应源码义务。
+
+如果组织希望闭源集成，或不按 AGPL 条件使用，可以向当前版权持有人
+`wuxuyun0606-collab` 申请另行签署商业许可。`v0.2.0` 及以前的版本继续适用当时发布的
+MIT 许可证；这次变更不会追回已经授予的历史权限。
+
+详见 [LICENSING.md](LICENSING.md) 和
+[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)。
+
 ## Roadmap
 
 - 增加可选 embedding adapters，但不把联网调用放进核心。

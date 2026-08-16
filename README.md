@@ -860,6 +860,21 @@ Alpha. The API is intentionally small and may change. The current goal is to
 make the coordinate model testable and easy to adapt, not to be a full memory
 platform.
 
+## License
+
+LMC-5 version 0.3.0 and later is available under
+**AGPL-3.0-or-later**. The AGPL permits commercial use, but modified
+network-accessible versions must satisfy its corresponding-source obligations.
+
+Organizations that want proprietary use without the AGPL obligations may
+request a separate written commercial license from `wuxuyun0606-collab`, the
+current copyright holder. Releases through `v0.2.0` remain under the MIT
+License originally published with those versions; that historical permission
+is not revoked.
+
+See [LICENSING.md](LICENSING.md) and
+[COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+
 ## Roadmap
 
 - Add optional embedding adapters without making network calls part of the core.
