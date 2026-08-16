@@ -14,7 +14,10 @@ and OpenAI organization ID before submitting.
 
 ## License
 
-MIT
+AGPL-3.0-or-later
+
+Public releases through `v0.2.0` remain MIT; version 0.3.0 and later uses the
+AGPL. See `LICENSING.md`.
 
 ## Maintainer Role
 
