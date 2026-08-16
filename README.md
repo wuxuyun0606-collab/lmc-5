@@ -867,9 +867,10 @@ LMC-5 version 0.3.0 and later is available under
 network-accessible versions must satisfy its corresponding-source obligations.
 
 Organizations that want proprietary use without the AGPL obligations may
-request a separate written commercial license. Releases through `v0.2.0`
-remain under the MIT License originally published with those versions; that
-historical permission is not revoked.
+request a separate written commercial license from `wuxuyun0606-collab`, the
+current copyright holder. Releases through `v0.2.0` remain under the MIT
+License originally published with those versions; that historical permission
+is not revoked.
 
 See [LICENSING.md](LICENSING.md) and
 [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).

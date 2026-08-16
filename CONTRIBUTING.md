@@ -33,6 +33,7 @@ PYTHONPATH=src python3 -m pytest tests
 
 LMC-5 version 0.3.0 and later is publicly licensed under
 `AGPL-3.0-or-later` and may also be offered under separate commercial terms.
+The current first-party copyright holder is `wuxuyun0606-collab`.
 
 By default, a pull request alone grants rights only under the repository's
 public AGPL license. That is not enough for the project to relicense a

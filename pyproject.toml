@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = "AGPL-3.0-or-later"
 authors = [
-  { name = "LMC-5 contributors" }
+  { name = "wuxuyun0606-collab" }
 ]
 keywords = ["ai-memory", "agents", "long-term-memory", "sqlite", "pgvector", "persona", "claude-code", "anti-hallucination"]
 classifiers = [

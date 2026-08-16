@@ -16,7 +16,7 @@ source obligations.
 Organizations that want to use LMC-5 under proprietary terms, embed it in a
 closed-source product, or operate a modified network service without complying
 with the AGPL may request a separate written commercial license from the
-copyright holders.
+copyright holder, `wuxuyun0606-collab`.
 
 See [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md). That document describes
 the commercial-licensing path but does not itself grant commercial rights.
@@ -37,6 +37,7 @@ licenses.
 
 ## Contributions
 
-Because the project may offer alternative commercial licenses, third-party
-code contributions require an explicit contributor agreement before they are
+The current first-party copyright holder is `wuxuyun0606-collab`. Because the
+project may offer alternative commercial licenses, third-party code
+contributions require an explicit contributor agreement before they are
 merged. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
