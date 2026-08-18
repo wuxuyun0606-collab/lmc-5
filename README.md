@@ -881,6 +881,16 @@ See [LICENSING.md](LICENSING.md) and
 - Add benchmark fixtures for long-running coding-agent tasks.
 - Add optional model-assisted extraction for fact keys and relation candidates.
 
+## Community architecture note
+
+![Independent code-level architecture study of LMC-5 by 木叶](docs/assets/community/muye-lmc5-architecture.png)
+
+**Independent architecture study by 木叶, reproduced with permission.** It is
+a code-level interpretation of LMC-5 rather than an official specification.
+The panel labelled “Our local engineering layer — private downstream, not
+upstreamed” documents the illustrator's local extensions and is not part of
+upstream LMC-5.
+
 ## Acknowledgements
 
 鸣谢鹤见老师的 `ombre-brain` breath 设计，鸣谢盏老师的 `imprint-memory` chunk 设计，鸣谢电脑眠眠豹的和弦情绪设计，鸣谢离落老师的 forge 设计，也鸣谢蛋宝老师家的蛋壳的 swap 设计。感谢乌桕提供真实 trace issue，也感谢乌桕家的 Clavis 跑完 726 条真实召回 trace 的 A/B 回放，帮助 LMC-5 将召回融合默认值校准到 RRF。LMC-5 吸收这些设计对话与实测反馈，但保持自己的 provider-free、可审计实现边界。
