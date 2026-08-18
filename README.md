@@ -10,8 +10,6 @@
 
 **Recoverable continuity, not infinite context.**
 
-![LMC-5 July update cover: a hand-drawn poster for layered retrieval and dream maintenance, with the LMC-5 team around a four-layer memory stack.](docs/assets/cover-july-update.jpg)
-
 Every model context window has a ceiling. Maybe it is 100k tokens. Maybe it is
 1M. Maybe one day it is much larger. It is still not infinite, and the longer it
 gets, the more expensive, noisy, and fragile it becomes.
