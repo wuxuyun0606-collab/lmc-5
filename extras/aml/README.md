@@ -9,8 +9,10 @@ evaluation datasets, or private run logs are distributed.
 
 ## Version and source correspondence
 
-Submission version: **`v0.3.0-aml.1`** (the AML serving snapshot on the 0.3.0 core).
-This is a new submission tag, not the older `v0.2.0` release.
+Original submission snapshot: **`v0.3.0-aml.1`** (on the 0.3.0 core).
+The current branch also contains the subsequent serving recovery and evidence
+visibility repairs described below; those repairs are not in the immutable
+`v0.3.0-aml.1` tag. The original snapshot is distinct from `v0.2.0`.
 
 The serving sources were exported on 2026-10-16 from the exam deployment using
 an explicit file allowlist. `deployment-source.json` records their original
@@ -67,9 +69,10 @@ model name is insufficient.
 
 ### Limits and accounting
 
-The fixed startup profile uses a USD 10 **JEV ledger** cap, at most 16 JEV calls
-per search, a default process-wide JEV limit of 16, and a default rate of 240
-candidate calls/minute (burst 4). This is **not** a verified 16-concurrent-client
+The fixed startup profile uses a USD 10 **JEV ledger** cap, at most 16 concurrent JEV calls
+per search, a default process-wide JEV limit of 16, and a fixed serving rate of 600
+candidate calls/minute (burst 4). The generic backend default remains 240; the
+serving profile sets 600 explicitly and keeps the 100-candidate pool unchanged. This is **not** a verified 16-concurrent-client
 HTTP capacity claim. The JEV ledger does not include embedding costs. The
 snapshot's price constant is USD 0.042 / million input tokens; operators must
 verify current provider prices before budgeting a new deployment.
@@ -77,9 +80,18 @@ verify current provider prices before budgeting a new deployment.
 Requests are limited to 8,000,000 body bytes. The service uses one Python process
 and a `ThreadingHTTPServer`; multiple paid workers sharing the state directory
 are refused by an instance lock. A search has a default 600-second rerank
-deadline; this is not a latency SLA. Unknown billing outcomes, invalid ledgers,
-provider auth errors, and budget exhaustion stop further paid sends as specified
-by the ledger. The HTTP service can still return RRF fallback results. No paid
+deadline; this is not a latency SLA. Invalid ledgers, provider auth errors, budget exhaustion, ambiguous transport
+outcomes and invalid usage stop further paid sends as specified by the ledger.
+The serving profile enables a narrowly scoped recovery policy for completed HTTP
+500/502/503/504/529 responses with missing usage: after a 10-second cooldown,
+retain the entire reservation as `UNKNOWN_KEPT`, audit the ledger transactionally,
+and allow a subsequent search to send only if no other stops, pending calls or
+provider pauses remain and the next reservation fits the budget. Failed calls
+are never replayed or refunded. Automatic retention is limited to five attempts
+per hour, 25 total per ledger, and USD 0.05 of retained uncertainty (including
+manual retained holds). Limits survive process restarts. Exceeding any limit
+keeps the stop in place for review. This does not claim the provider's actual
+charge is known; the conservative reservation remains in budget exposure. The HTTP service can still return RRF fallback results. No paid
 request is automatically retried. Inspect `X-AML-Rerank` and the health counters
 to distinguish successful reranking from fallback.
 
@@ -194,7 +206,8 @@ Tests start a loopback-only JEV stub with synthetic memory text and fake keys,
 use temporary SQLite stores, and make no paid model calls. They exercise auth,
 sequential idempotency, namespace isolation, real HTTP Add/Search, JEV request
 and receipt parsing, return limits, durable usage accounting, error fallback,
-startup refusal on missing auth/ledger or forbidden budget overrides, and the
+transient 529 recovery with retained charges, hard-stop preservation, persistent
+recovery limits, startup refusal on missing auth/ledger or forbidden budget overrides, and the
 public launcher’s harness clearing, exclusive lock and fresh run ids on restart.
 They do not establish official benchmark scores or production load capacity.
 
@@ -207,3 +220,17 @@ AGPL-3.0-or-later license. Design influences are credited in
 retain their own terms/licenses. Only runtime adapter source and synthetic tests
 are included here; no API keys, live databases, evaluation questions/answers,
 or private persona data are part of this release.
+
+
+### Regression note for the serving repair
+
+An HTTP-200 memory response can contain an RRF fallback. Track `X-AML-Rerank`,
+the rerank/fallback counters and the budget's stopped state separately from HTTP
+availability. A short three-candidate smoke test does not establish latency for
+a 100-candidate search: at 240 candidate calls/minute the rate limiter alone
+accounts for roughly 25 seconds; the serving rate of 600 targets roughly 10
+seconds before network and storage overhead. Neither is a latency guarantee.
+
+The existing source snapshot and release links above identify the original
+submission. This working change adds bounded recovery and a serving rate change;
+it does not rewrite the original release tag or its source-hash manifest.

@@ -34,6 +34,8 @@ for k in ("AML_RERANK", "AML_RETURN_N"):
 _CONTROLLED = {
     "AML_RERANK_BUDGET_USD": "10",
     "AML_RERANK_PER_SEARCH": "16",
+    "AML_RERANK_RPM": "600",
+    "AML_RERANK_TRANSIENT_RECOVERY": "1",
     "AML_RERANK_POOL": "100",
     "AML_RERANK_LEDGER": str(STATE_DIR / "data/ledger/rerank_exam_jev.sqlite"),
     "AML_RERANK_BUDGET_ID": "aml-jev-serving-v1",

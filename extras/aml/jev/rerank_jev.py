@@ -415,6 +415,9 @@ def stats_snapshot() -> dict:
     s["run_id"] = RUN_ID or None
     s["pid"] = os.getpid()
     s["test_mode"] = TEST_MODE
+    s["rpm"] = RPM
+    s["per_search_concurrency"] = PER_SEARCH
+    s["transient_recovery_enabled"] = os.environ.get("AML_RERANK_TRANSIENT_RECOVERY") == "1"
     s["queue_wait_s"] = round(s["queue_wait_s"], 3)
     s["est_usd_settled"] = L.nano_to_usd(s.pop("settled_nano"))
     s["breaker_open"] = time.time() < s.pop("breaker_open_until")
@@ -1005,6 +1008,37 @@ def _settle(aid, est, outcome):
 # ---- the hook -----------------------------------------------------------------------------------
 def _truncate_rrf(cands, n):
     return [(mid, s) for mid, s, _ in cands[:n]]
+
+
+_recovery_lock = threading.Lock()
+
+
+def recover_serving_transient(query, cands):
+    """Serving-only audited recovery. Uncertain calls are retained, never replayed."""
+    if os.environ.get("AML_RERANK_TRANSIENT_RECOVERY") != "1" or MODE == "off":
+        return {"recovered": False, "reason": "disabled"}
+    from serving_recovery import recover
+    if not _recovery_lock.acquire(timeout=0.1):
+        return {"recovered": False, "reason": "recovery_busy"}
+    try:
+        # A changed local flag alone never authorizes sends; reserve/mark_sending
+        # still consult the durable ledger on every new request.
+        need = sum((len(state_text(query, c[2]).encode("utf-8")) + TOK_OVERHEAD) * PRICE_NANO
+                   for c in cands[:MAX_CAND])
+        cooldown = 0.05 if TEST_MODE else 10.0
+        result = recover(LEDGER, actor=RUN_ID, env_cap_nano=BUDGET_NANO,
+                         next_reserve_nano=need, cooldown=cooldown)
+        if result.get("reason") == "cooldown" and result["wait_s"] <= cooldown:
+            time.sleep(result["wait_s"] + 0.01)
+            result = recover(LEDGER, actor=RUN_ID, env_cap_nano=BUDGET_NANO,
+                             next_reserve_nano=need, cooldown=cooldown)
+        if result.get("recovered"):
+            _LOCAL_STOP.clear()
+        return result
+    except Exception as exc:
+        return {"recovered": False, "reason": "recovery_error:" + type(exc).__name__}
+    finally:
+        _recovery_lock.release()
 
 
 def apply(query: str, cands: list[tuple[int, float, str]], top_k: int) -> tuple[list[tuple[int, float]], dict]:

@@ -2,9 +2,10 @@
 
 Modeled on J50's offline JevBridge (round3/guchen_lmc5_test_20261009/jev_bridge.py) with two
 deliberate serving-semantics changes, both to keep the exam endpoint ALIVE:
-- no persistent HALT and no receipt cache: a failed/uncertain rerank falls back to the RRF order for
-  THAT search only (meta mode "fallback"), the service keeps answering; overspend is still impossible
-  because the budget ledger inside rerank_jev caps every send.
+- the bridge itself never halts the HTTP service: a failed rerank returns RRF fallback.
+  Backend accounting stops remain authoritative; only explicit transient HTTP responses may
+  undergo the bounded keep-and-recover policy before a subsequent search. No receipt cache
+  or retry replays the failed call; every new send still reserves against the durable ledger.
 - no cross-request result cache: every Search reranks live (the offline digest cache could serve a
   stale ordering after the store changes under the same query).
 
@@ -34,7 +35,13 @@ class ExamJevBridge:
         n = min(int(top_k), self.RETURN_N)
         rrf_order = [(c[0], c[1]) for c in cands]  # the guaranteed fallback ordering, fixed up front
         try:
+            recovery = None
+            if hasattr(self.backend, "recover_serving_transient"):
+                recovery = self.backend.recover_serving_transient(query, cands)
             pairs, meta = self.backend.apply(query, cands, 100)
+            if recovery and recovery.get("reason") not in ("disabled", "no_stop"):
+                meta["recovery"] = recovery
+                self._log({"op": "jev_serving_recovery", **recovery})
             if meta.get("mode") == "fallback":
                 # do not trust the backend's fallback pairs: restore the RRF order explicitly, and log
                 self._log({"op": "jev_serving_fallback", "reason": str(meta.get("reason"))[:120],

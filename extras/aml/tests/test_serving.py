@@ -38,7 +38,7 @@ def free_port():
 
 @pytest.fixture
 def serving(tmp_path):
-    state = {'invalid_score': False, 'calls': 0, 'requests': []}
+    state = {'invalid_score': False, 'http_status': 200, 'calls': 0, 'requests': []}
     state_lock = threading.Lock()
 
     class Stub(BaseHTTPRequestHandler):
@@ -57,7 +57,9 @@ def serving(tmp_path):
             payload = json.dumps({'model': 'jev-1.13.0',
                                   'answers': {'rel': {'score': 'invalid' if state['invalid_score'] else 2.5}},
                                   'usage': {'input_tokens': 20}}).encode()
-            self.send_response(200)
+            if state['http_status'] != 200:
+                payload = b'{}'
+            self.send_response(state['http_status'])
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
@@ -266,3 +268,32 @@ def test_public_startup_clears_harness_and_restarts_with_fresh_run(tmp_path):
                 proc.kill()
                 proc.communicate()
     assert runs[0] != runs[1]
+
+
+def test_transient_529_retains_charge_and_next_search_recovers(serving):
+    import sqlite3
+    request, state, env, ledger = serving
+    assert request('/v1/memories/add', add_body(1))[0] == 200
+    state['http_status'] = 529
+    code, headers, _ = request('/v1/memories/search', {'user_id': 'alice', 'query': 'orbit', 'top_k': 100})
+    assert code == 200 and headers['X-AML-Rerank'].startswith('fallback')
+    assert state['calls'] == 1
+    with sqlite3.connect(ledger) as db:
+        aid, charge = db.execute("SELECT attempt_id,charge_nano FROM attempts WHERE status='UNKNOWN'").fetchone()
+    state['http_status'] = 200
+    code, headers, _ = request('/v1/memories/search', {'user_id': 'alice', 'query': 'orbit followup', 'top_k': 100})
+    assert code == 200 and headers['X-AML-Rerank'] == 'rerank'
+    assert state['calls'] == 2  # The first request was never replayed.
+    with sqlite3.connect(ledger) as db:
+        assert db.execute('SELECT status,charge_nano FROM attempts WHERE attempt_id=?', (aid,)).fetchone() == ('UNKNOWN_KEPT', charge)
+    assert json.loads(invoke([MODULE / 'jev/wo2_budget_admin_jev.py', 'audit', '--ledger', ledger], env).stdout)['ok']
+
+
+def test_auth_stop_is_not_automatically_recovered(serving):
+    request, state, _, _ = serving
+    assert request('/v1/memories/add', add_body(1))[0] == 200
+    state['http_status'] = 401
+    assert request('/v1/memories/search', {'user_id': 'alice', 'query': 'orbit', 'top_k': 100})[1]['X-AML-Rerank'].startswith('fallback')
+    state['http_status'] = 200
+    assert request('/v1/memories/search', {'user_id': 'alice', 'query': 'orbit followup', 'top_k': 100})[1]['X-AML-Rerank'].startswith('fallback')
+    assert state['calls'] == 1
