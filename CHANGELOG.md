@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-13 — AML code Full source reconciliation
+
+- Reconcile retained October 24–25 server, input limits and store repairs on the independent AML maintenance branch.
+- Preserve historical implementation bodies; document portable path/account substitutions and the recorded four-request profile.
+- Add source digests, deployment-evidence excerpts and offline regressions. This is a November publication, not an October commit or live deployment.
+- Keep the original tag and full-system main unchanged. See `extras/aml/CODING-SNAPSHOT-20261025.md`.
+
 ## Unreleased — AML competition branch
 
 - Scan all matching SQLite vectors with a bounded top-K heap, hydrating only

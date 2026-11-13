@@ -260,6 +260,7 @@ RELATION_TYPE_WEIGHTS = {
 }
 RELATION_DEPTH_WEIGHTS = {1: 0.35, 2: 0.16}
 RELATION_MIN_STRENGTH = {1: 0.4, 2: 0.7}
+MAX_RECALL_QUERY_TERMS = 64  # see _recall_candidates
 LIVE_MEMORY_SQL = "status = 'current' AND (fact_key IS NULL OR active_fact = 1)"
 ENTITY_SOURCE_WEIGHTS = {
     "fact_key": 0.28,
@@ -1898,6 +1899,12 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             for term in query.split()
             if term.strip() and not _is_query_control_term(term)
         ]
+        if len(terms) > MAX_RECALL_QUERY_TERMS:
+            # Over-long query: the uncapped AND-chain of LIKE clauses below trips SQLite
+            # "Expression tree is too large (maximum depth 1000)" at ~1000 terms, and an
+            # all-terms AND never matches anyway. Skip the lexical channel entirely
+            # (no prefix matching) and let the other recall channels work.
+            return []
         if not terms:
             rows = self.conn.execute(
                 f"SELECT * FROM memories WHERE {LIVE_MEMORY_SQL} ORDER BY created_at DESC LIMIT ?",
@@ -1940,15 +1947,22 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                     "thread LIKE ? ESCAPE '\\')"
                 )
                 params.extend([pattern, pattern, pattern, pattern, pattern])
-            rows = self.conn.execute(
-                f"""
-                SELECT * FROM memories
-                 WHERE {LIVE_MEMORY_SQL}
-                   AND {' AND '.join(clauses)}
-                 LIMIT ?
-                """,
-                (*params, limit * 5),
-            ).fetchall()
+            try:
+                rows = self.conn.execute(
+                    f"""
+                    SELECT * FROM memories
+                     WHERE {LIVE_MEMORY_SQL}
+                       AND {' AND '.join(clauses)}
+                     LIMIT ?
+                    """,
+                    (*params, limit * 5),
+                ).fetchall()
+            except sqlite3.OperationalError as exc:
+                # Only the expression-depth failure is a known-benign zero-candidate case;
+                # locks, I/O errors etc. keep propagating to the server error log.
+                if "Expression tree is too large" not in str(exc):
+                    raise
+                rows = []
             for row in rows:
                 record = _row_to_memory(row)
                 if int(record.id) not in candidates:

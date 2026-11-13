@@ -22,7 +22,8 @@ AUTH = 'local-test-auth-' + 'a' * 32
 def clean_env(tmp):
     return {'PATH': os.environ.get('PATH', ''), 'HOME': str(tmp),
             'PYTHONPATH': str(REPO / 'src'), 'PYTHONDONTWRITEBYTECODE': '1',
-            'AML_STATE_DIR': str(tmp / 'state')}
+            'AML_STATE_DIR': str(tmp / 'state'),
+            'NO_PROXY': '127.0.0.1,localhost', 'no_proxy': '127.0.0.1,localhost'}
 
 
 def invoke(args, env):
@@ -37,7 +38,8 @@ def free_port():
 
 
 @pytest.fixture
-def serving(tmp_path):
+def serving(tmp_path, request):
+    use_embedding = getattr(request, "param", {}).get("embedding", False)
     state = {'invalid_score': False, 'http_status': 200, 'calls': 0, 'requests': [], 'usage': {'input_tokens': 20}, 'retry_after': None, 'delay': 0}
     state_lock = threading.Lock()
 
@@ -46,6 +48,18 @@ def serving(tmp_path):
             pass
 
         def do_POST(self):
+            if self.path == '/embeddings':
+                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                rejected = any(len(text.encode('utf-8')) > 7680 for text in body['input'])
+                payload = ({'error': {'code': 'InvalidParameter', 'message': 'input length too long'}}
+                           if rejected else {'data': [{'index': i, 'embedding': [1., 0., 0.]} for i, _ in enumerate(body['input'])],
+                                             'usage': {'total_tokens': 10}})
+                raw = json.dumps(payload).encode()
+                self.send_response(400 if rejected else 200)
+                self.send_header('Content-Length', str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
             assert self.path == '/run'
             assert self.headers['Authorization'] == 'Bearer stub-not-a-real-token'
             body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
@@ -86,6 +100,9 @@ def serving(tmp_path):
                AML_NO_EMBED='1', AML_TRIAL_PORT=str(port), AML_BIND='127.0.0.1',
                AML_RERANK_RPM='100000', AML_RERANK_BURST='200', AML_RERANK_DEADLINE_SEC='0.5',
                AML_RERANK_BREAKER_COOLDOWN='0.1')
+    if use_embedding:
+        env.update(AML_NO_EMBED='0', DASHSCOPE_API_KEY='synthetic-embedding-key',
+                   DASHSCOPE_BASE_URL=f'http://127.0.0.1:{stub.server_port}', EMBED_DIM='3')
     base = f'http://127.0.0.1:{port}'
     opener = build_opener(ProxyHandler({}))
 
@@ -138,6 +155,7 @@ def test_auth_health_and_user_isolation(serving):
     code, _, health = request('/health', auth=False)
     assert code == 200 and health['rerank']['mode'] == 'jev'
     assert health['rerank']['test_mode'] is True
+    assert health['request_concurrency']['limit'] == 4
     for path in ('/v1/memories/add', '/v1/memories/search'):
         assert request(path, {}, auth=False)[0] == 401
     body = add_body()

@@ -18,6 +18,7 @@ for k in ("AML_RERANK", "AML_RETURN_N"):
     os.environ.pop(k, None)
 
 _CONTROLLED = {
+    "AML_MAX_ACTIVE_REQUESTS": "4",
     "AML_RERANK_PER_SEARCH": "16",
     "AML_RERANK_RPM": "600",
     "AML_RERANK_POOL": "100",

@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from aml_paths import SECRETS_DIR, PAID_INSTANCE_LOCK
+from input_limits import JEV_STATE_BYTES, jev_state
 from urllib.parse import urlsplit
 
 import requests
@@ -53,7 +54,7 @@ JEV_PROD_KEY_PATH = SECRETS_DIR / ".typesafe_key"  # shared production key is re
 
 
 def state_text(question: str, memory: str) -> str:
-    return "Question: " + question + "\nMemory: " + memory
+    return jev_state(question, memory)
 # ------------------------------------------------------------------------------------------------
 
 TEST_PATH = "/run"
@@ -742,6 +743,11 @@ def apply(query: str, cands: list[tuple[int, float, str]], top_k: int) -> tuple[
     #   "forget" marks = HARD EXCLUSION, applied here BEFORE reranking (C6). The fallback path
     #   must also use the post-exclusion list: a fallback never undoes a forget.
     pool = cands[:MAX_CAND]
+    meta["input_length"] = {
+        "bounded_pairs": sum(len(("Question: " + query + "\nMemory: " + c[2]).encode("utf-8"))
+                             > JEV_STATE_BYTES for c in pool),
+        "original_query_chars": len(query), "state_byte_ceiling": JEV_STATE_BYTES,
+    }
     if len({c[0] for c in pool}) != len(pool):
         return done(_truncate_rrf(pool, n), "fallback", "dup_input_id")
     token = _get_token()

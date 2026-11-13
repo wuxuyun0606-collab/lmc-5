@@ -1,0 +1,231 @@
+{
+  "schema": 1,
+  "task_id": "teval_f1815ffa991191d7",
+  "registration_tag": "v0.3.0-aml.1",
+  "registration_commit": "d02563ad7885c027778429287a29d35e3fc2d6e7",
+  "maintenance_parent": "23f4aa4694eb3d22c73312d729fefc87b7b30050",
+  "reconciled_local_date": "2026-11-13",
+  "reconciled_timezone": "America/Los_Angeles",
+  "scope": "Retrospective reconciliation of retained code Full sources; not an October commit, whole-run attestation, or deployment. Function/class AST matches do not prove configuration/data/output equivalence.",
+  "files": [
+    {
+      "retained_source": "server-queued.py",
+      "published_path": "extras/aml/shell/server.py",
+      "historical_sha256": "155b06a4231772e2a108e58e479338657d30c172e2680d8adafa87a17317c602",
+      "published_sha256": "cca772f1dcf5d1e17f107b2bafa8ffd9c29b2bea71dc1f87010509e7476d98f8",
+      "byte_identical": false,
+      "historical_function_class_ast_sha256": "9396bfb5bc86b3e6bcd3aa252db94d6c3a05088c775dfd6db341121ccefac5bb"
+    },
+    {
+      "retained_source": "runtime/rerank_jev.py",
+      "published_path": "extras/aml/jev/rerank_jev.py",
+      "historical_sha256": "9092f006c7e5e90543f27b1174efdf7f02e91cf0cd5e66e3fa5972ac781bd525",
+      "published_sha256": "9092f006c7e5e90543f27b1174efdf7f02e91cf0cd5e66e3fa5972ac781bd525",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "ca847ef26609afad726319d82172fdad16a537750d6e699ac1679ce9380cabfe"
+    },
+    {
+      "retained_source": "runtime/exam_jev_bridge.py",
+      "published_path": "extras/aml/shell/exam_jev_bridge.py",
+      "historical_sha256": "75486d658e8a7d40c1c1fccc2be4466fc01e0069e06c14d8e076e353006776cd",
+      "published_sha256": "75486d658e8a7d40c1c1fccc2be4466fc01e0069e06c14d8e076e353006776cd",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "83db5b8a8397cfac6499881d80eeb6842dc771b0b45fafe8ffd9f620214295d4"
+    },
+    {
+      "retained_source": "runtime/input_limits.py",
+      "published_path": "extras/aml/input_limits.py",
+      "historical_sha256": "f9257416c41e487332f55e64b51fb1ca2c2a57ba8f40af270a520406ae2de488",
+      "published_sha256": "f9257416c41e487332f55e64b51fb1ca2c2a57ba8f40af270a520406ae2de488",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "69b9742a6307c1bea214f72dbde80df9a189d27f35c48caa1b147bbdb65422a1"
+    },
+    {
+      "retained_source": "runtime/lmc5/__init__.py",
+      "published_path": "src/lmc5/__init__.py",
+      "historical_sha256": "8ea464f7ae2eec14f69c7d40236b71e2298c35b300c56e86d309a5cabfd72cec",
+      "published_sha256": "8ea464f7ae2eec14f69c7d40236b71e2298c35b300c56e86d309a5cabfd72cec",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "retained_source": "runtime/lmc5/__main__.py",
+      "published_path": "src/lmc5/__main__.py",
+      "historical_sha256": "99784484159269e9c2ed46e1647bc75fa2ae76eb40fbbbace101f780fb0181d6",
+      "published_sha256": "99784484159269e9c2ed46e1647bc75fa2ae76eb40fbbbace101f780fb0181d6",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "retained_source": "runtime/lmc5/atom_quality.py",
+      "published_path": "src/lmc5/atom_quality.py",
+      "historical_sha256": "c3dcc9992c9736615f1ad50613e9d28d89b57a8639ea5cf4eab957e77e622f87",
+      "published_sha256": "c3dcc9992c9736615f1ad50613e9d28d89b57a8639ea5cf4eab957e77e622f87",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "51782232831410d6b78589e71b03781c8c33e2efb243483a1557a59eb3d0b0df"
+    },
+    {
+      "retained_source": "runtime/lmc5/cli.py",
+      "published_path": "src/lmc5/cli.py",
+      "historical_sha256": "598ae01f83b625cbad2daede9647d763374362385a84b204e06e0fc4f2276763",
+      "published_sha256": "598ae01f83b625cbad2daede9647d763374362385a84b204e06e0fc4f2276763",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "d266e7b73dcfdc95b2f0578196622ecafc468cdb45a6bd973302cbe807f00118"
+    },
+    {
+      "retained_source": "runtime/lmc5/consolidation.py",
+      "published_path": "src/lmc5/consolidation.py",
+      "historical_sha256": "ab3654d62bb85bebcbd233315663c19d483a514867291a82ff6e4d951710236f",
+      "published_sha256": "ab3654d62bb85bebcbd233315663c19d483a514867291a82ff6e4d951710236f",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "5df5d22d1fd641f90f8253b6317db91cf441ce38684ffaaf0f1de663e224c0f1"
+    },
+    {
+      "retained_source": "runtime/lmc5/fact_evolution.py",
+      "published_path": "src/lmc5/fact_evolution.py",
+      "historical_sha256": "e427842d0c2b55d3fca7b48c7de83b6a666dc4c4f2e239297576842f7d047159",
+      "published_sha256": "e427842d0c2b55d3fca7b48c7de83b6a666dc4c4f2e239297576842f7d047159",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "a6fae275a83439b3d0b10a0f106f0612b51e8ee32d57458e6adc6431455c7ff9"
+    },
+    {
+      "retained_source": "runtime/lmc5/hippocampus.py",
+      "published_path": "src/lmc5/hippocampus.py",
+      "historical_sha256": "7bdca5222b932c50a9ac8c4ea3bb27ecbbd6725085583aedc0341dd7159458a5",
+      "published_sha256": "7bdca5222b932c50a9ac8c4ea3bb27ecbbd6725085583aedc0341dd7159458a5",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "ca34b6a60a88059ac352e9c2d9e8b12199f75dccab3de7d518aa69c3ded0f95f"
+    },
+    {
+      "retained_source": "runtime/lmc5/metabolism.py",
+      "published_path": "src/lmc5/metabolism.py",
+      "historical_sha256": "a1a3a8212abe746e308951cf9e48227f8eafb15eb0790d9e09fb2e6f95dadc2d",
+      "published_sha256": "a1a3a8212abe746e308951cf9e48227f8eafb15eb0790d9e09fb2e6f95dadc2d",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "8908a6dca4e4f1a9eefcc2278cf3bc3e337d13bdefa78647cda200d63d219379"
+    },
+    {
+      "retained_source": "runtime/lmc5/models.py",
+      "published_path": "src/lmc5/models.py",
+      "historical_sha256": "3ba9c701f1b0b168ab854a06c0e828c28f31aba4ac9238652f6210b14023fecc",
+      "published_sha256": "3ba9c701f1b0b168ab854a06c0e828c28f31aba4ac9238652f6210b14023fecc",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "ef1d292bdac0beee3a4bf0e022d25bd12fd9e23949d3266a6c23e315f568a1db"
+    },
+    {
+      "retained_source": "runtime/lmc5/redact.py",
+      "published_path": "src/lmc5/redact.py",
+      "historical_sha256": "9f844ca928a617568834cb1ae44d42d9e67742a9a0453f5a046dc8e42b99974a",
+      "published_sha256": "9f844ca928a617568834cb1ae44d42d9e67742a9a0453f5a046dc8e42b99974a",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "b85c0f1a89847d31555b057d6c9eb21460bd69bef45b9ac2f5380c2e3ea1b2a5"
+    },
+    {
+      "retained_source": "runtime/lmc5/scoring.py",
+      "published_path": "src/lmc5/scoring.py",
+      "historical_sha256": "1a74af96f3a0d5766c55663b395079faa15408483e8dee50f720b3529fddfc3b",
+      "published_sha256": "1a74af96f3a0d5766c55663b395079faa15408483e8dee50f720b3529fddfc3b",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "804ba2634dfd44e341ebb3924c734ba62dd6d42b448514e0c4042fc358720a35"
+    },
+    {
+      "retained_source": "runtime/lmc5/store.py",
+      "published_path": "src/lmc5/store.py",
+      "historical_sha256": "8a9925bf1bae61b3f5390307f2228d70a613b9f56f975e84ae3c4a420c59c602",
+      "published_sha256": "8a9925bf1bae61b3f5390307f2228d70a613b9f56f975e84ae3c4a420c59c602",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "566beb49725339abb5d821af36e7fbca69b3712b14fcc8eb0e1ce9f3534eed73"
+    },
+    {
+      "retained_source": "runtime/lmc5/vector.py",
+      "published_path": "src/lmc5/vector.py",
+      "historical_sha256": "d67cc99489eab36355bfd22e01008d1a79c2695b80f3644c7f06ca9ecd9d5952",
+      "published_sha256": "d67cc99489eab36355bfd22e01008d1a79c2695b80f3644c7f06ca9ecd9d5952",
+      "byte_identical": true,
+      "historical_function_class_ast_sha256": "0b876d80bd2f8e7cf2fc75364bd31d58d1869b8e70099d731a22c427b1ac107c"
+    },
+    {
+      "retained_source": "runtime/aml_paths.py",
+      "published_path": "extras/aml/aml_paths.py",
+      "historical_sha256": "7a3d766e75b137f2de01f2df38aafae4a90d5622a4f186081ad733d199f7cfe9",
+      "published_sha256": "feeddf8f54d5b7217ec7e6625679607e6e96f26f29fc4be5e5784d9790ab54d4",
+      "byte_identical": false,
+      "difference": "Retains existing public configurable state-directory default; no private host default."
+    },
+    {
+      "published_path": "extras/aml/shell/serve_exam.py",
+      "published_sha256": "142853c1d68badedecbc68f21734abcb19df63598a091e07db978db7f7ff5973",
+      "basis": "November portable packaging of recorded AML_MAX_ACTIVE_REQUESTS=4 setting; not historical byte identity."
+    },
+    {
+      "published_path": "extras/aml/start.sh",
+      "published_sha256": "5bb6dc2342a9775668bcd67e4d0fced1fe9fbf659a662ac033fc9d8fd3149a9f",
+      "basis": "November portable packaging of recorded AML_MAX_ACTIVE_REQUESTS=4 setting; not historical byte identity."
+    },
+    {
+      "published_path": "extras/aml/public.env.example",
+      "published_sha256": "89fecda121269c180d9c27195818ee1b8c13ea6bc01585c49e3db9dcd8729cf2",
+      "basis": "November portable packaging of recorded AML_MAX_ACTIVE_REQUESTS=4 setting; not historical byte identity."
+    }
+  ],
+  "evidence_excerpts": [
+    {
+      "label": "request_queue_deployment",
+      "local_evidence_file_sha256": "e381e8c425d11deebbd6bb7239958d25bfa03f9ee30dbcd0e2759d0b615b042c",
+      "status": "deployed",
+      "old_server_sha256": "7e627f8255d8275bdb9dc0642afdb79886e2fe48cc42ee13837edd0575d013e7",
+      "new_server_sha256": "155b06a4231772e2a108e58e479338657d30c172e2680d8adafa87a17317c602",
+      "request_concurrency": {
+        "limit": 4,
+        "active": 0,
+        "waiting": 0
+      }
+    },
+    {
+      "label": "full_start_sample",
+      "local_evidence_file_sha256": "e8de6635098c8ad289528b5b3c0ebdec3f6213d3ac814d1dc434d740a778fab0",
+      "time_unix": 1792944012.71597,
+      "server_sha256": "155b06a4231772e2a108e58e479338657d30c172e2680d8adafa87a17317c602",
+      "pid": 1385992,
+      "request_concurrency": {
+        "limit": 4,
+        "active": 4,
+        "waiting": 0
+      }
+    },
+    {
+      "label": "first_failure_sample",
+      "local_evidence_file_sha256": "cdfb5ace3cdacf26f4286fdacb7d749174e1f8ba93d0e21333878be521556e4c",
+      "time_unix": 1792994011.4191413,
+      "server_sha256": "155b06a4231772e2a108e58e479338657d30c172e2680d8adafa87a17317c602",
+      "pid": 1385992,
+      "request_concurrency": {
+        "limit": 4,
+        "active": 0,
+        "waiting": 0
+      }
+    },
+    {
+      "label": "query_length_acceptance",
+      "local_evidence_file_sha256": "0aabfe998f9d7a89214208715ead6aee7cc30a557e7e24c7d737e0c98a668802",
+      "deployment_status": "deployed",
+      "deployment_hashes": {
+        "input_limits.py": "f9257416c41e487332f55e64b51fb1ca2c2a57ba8f40af270a520406ae2de488",
+        "shell/server.py": "7e627f8255d8275bdb9dc0642afdb79886e2fe48cc42ee13837edd0575d013e7",
+        "jev/rerank_jev.py": "9092f006c7e5e90543f27b1174efdf7f02e91cf0cd5e66e3fa5972ac781bd525"
+      },
+      "historical_acceptance": {
+        "passed": true,
+        "total_real_searches_including_initial": 6,
+        "total_real_jev_candidate_calls": 600,
+        "zero_fallback": true,
+        "short_input_unmodified": true,
+        "platform_resume_clicked": false
+      }
+    },
+    {
+      "label": "ledger_removal_deployment",
+      "local_evidence_file_sha256": "3efc2c0379ed15b98cfb6f2983d1cec2664e1c713142935c496305f0131591f4"
+    }
+  ]
+}

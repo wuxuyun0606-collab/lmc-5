@@ -14,10 +14,12 @@ system on `main`. This competition branch is not a merge candidate for the
 full-system branch. Keep competition fixes and releases on this maintenance line.
 
 Original submission snapshot: **`v0.3.0-aml.1`** (on the 0.3.0 core).
-The current branch adds streaming top-K vector retrieval, removes JEV billing
-accounting and persistent stops, and includes the evidence visibility repair.
-These changes are not in the immutable `v0.3.0-aml.1` tag. The original snapshot
-is distinct from `v0.2.0`.
+The current branch also reconciles the retained October 25 code Full source.
+See [the November reconciliation](CODING-SNAPSHOT-20261025.md) and its separate
+[coding source manifest](coding-source-20261025.json). The October 23 fixes and
+the later retained deployment repairs are not in the immutable registration tag.
+The new publication is not a contemporaneous October commit or a replacement
+registration. The original snapshot is distinct from `v0.2.0`.
 
 The serving sources were exported on 2026-10-16 from the exam deployment using
 an explicit file allowlist. `deployment-source.json` records their original
@@ -79,7 +81,9 @@ insufficient.
 
 ### Runtime limits and failure handling
 
-The serving profile uses at most 16 concurrent JEV calls per search, a default
+The serving profile admits at most four POST requests before reading bodies;
+waiting connections/threads are not globally bounded. Health bypasses this queue.
+It uses at most 16 concurrent JEV calls per search, a default
 process-wide limit of 16, and 600 candidate calls/minute (burst 4). The generic
 backend default remains 240. This is not a verified HTTP client-concurrency
 capacity claim. The request body limit is 8,000,000 bytes. A process lock avoids
@@ -90,7 +94,7 @@ been deleted. There is no replacement accounting component or compatibility
 layer. Provider-reported token counts are optional diagnostics; actual billing
 and spending controls belong to the provider account.
 
-A failed, invalid or uncertain call falls back to RRF for that search. It does
+A failed, invalid or uncertain JEV call falls back to RRF for that search. It does
 not create a sticky stop for other searches or future process starts. Missing
 or malformed usage does not invalidate an otherwise valid JEV score. Failed
 calls are not automatically retried, including after restarting the service.
@@ -102,15 +106,24 @@ in full while this process runs; it is no longer persisted in a billing DB.
 These are not latency guarantees. Inspect `X-AML-Rerank`, fallback reasons and
 rate-hold counters to distinguish successful reranking from fallback.
 
-### Relation to the running competition
+### Relation to the historical competition
 
-The streaming `search_vectors` and its compatibility fallback are copied from
-the validated exam repair. The ledger-free JEV backend is a **further source
-change**: the running exam at the time of this update still retains its ledger
-in record-only mode. Updating this repository does not deploy, restart or
-otherwise change that service. Do not treat this branch as a byte-for-byte
-snapshot of the running exam. The original tag and `deployment-source.json`
-remain historical evidence of the October 16 submission, not current hashes.
+The current source reconstructs the retained code Full implementation with
+explicit public path/account substitutions and a portable four-request profile.
+The original tag and `deployment-source.json` remain October 16 evidence; use
+`coding-source-20261025.json` for the November reconciliation. Publishing this
+source does not deploy, restart, or alter any exam service. Matching source
+functions does not establish identical indexes, data, upstream behavior or
+results. See the reconciliation document for known limits and evidence scope.
+
+### Historical long-input behavior
+
+An embedding query is retried once with a 7680-byte UTF-8 head/tail copy only
+after a definitive HTTP 400 input-length rejection. Successful inputs remain
+unchanged. JEV receives a request-only state bounded to 30000 UTF-8 bytes;
+stored text is not rewritten. Lexical queries above 64 terms skip the lexical
+candidate channel. These can affect long-input results. Add retains the original
+behavior; the later text-retake long-Add repair is not included.
 
 ## Install and configure (Linux / macOS, Python 3.9+)
 

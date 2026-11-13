@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -35,12 +36,13 @@ from aml_paths import STATE_DIR, SECRETS_DIR
 from lmc5 import MemoryStore
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jev"))
-import rerank_jev as rerank
+
+import rerank_jev
 from exam_jev_bridge import ExamJevBridge
 
-if rerank.MODE == "jev":
-    rerank = ExamJevBridge(rerank)
+rerank = ExamJevBridge(rerank_jev) if rerank_jev.MODE == "jev" else rerank_jev
 
+from input_limits import EMBED_QUERY_BYTES, bound_text
 ROOT = Path(os.environ.get("AML_TRIAL_DATA", str(STATE_DIR / "data/instance")))
 DB_DIR = ROOT / "db"
 DB_DIR.mkdir(parents=True, exist_ok=True)
@@ -551,8 +553,22 @@ def fetch_adjacent(conn, mids):
 _user_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 _log_lock = threading.Lock()
+_initialized_stores: set[Path] = set()
 _embed_usage = {"tokens": 0, "calls": 0}
 _tls = threading.local()  # per-request rerank metadata for the X-AML-Rerank header
+
+# Queue HTTP work before reading request bodies. This bounds simultaneous Add
+# vector buffers and Search candidate text, without truncating/rejecting work.
+# Zero (default) preserves the previous unqueued behavior; the exam opts into 4.
+REQUEST_CONCURRENCY = max(0, int(os.environ.get("AML_MAX_ACTIVE_REQUESTS", "0")))
+_request_slots = threading.BoundedSemaphore(REQUEST_CONCURRENCY) if REQUEST_CONCURRENCY else None
+_request_activity_lock = threading.Lock()
+_request_activity = {"active": 0, "waiting": 0}
+
+
+def request_concurrency_snapshot():
+    with _request_activity_lock:
+        return {"limit": REQUEST_CONCURRENCY, **_request_activity}
 
 
 def user_lock(user_id: str) -> threading.Lock:
@@ -565,9 +581,30 @@ def db_path(user_id: str) -> Path:
 
 
 def open_store(user_id: str) -> MemoryStore:
-    store = MemoryStore(db_path(user_id))
-    store.init()
+    # All callers hold user_lock(user_id), including neighbor and multi-hop reads.
+    # Indexes are maintained by add_memory; migrations/rebuilds run once per DB
+    # per process. Do not hold the global locks guard during database work.
+    path = db_path(user_id)
+    store = MemoryStore(path)
+    with _locks_guard:
+        initialized = path in _initialized_stores
+    if not initialized:
+        try:
+            store.init()
+        except Exception:
+            store.close()
+            raise
+        with _locks_guard:
+            _initialized_stores.add(path)
     return store
+
+
+def safe_rerank_stats() -> dict:
+    # Diagnostics must not turn an already-computed search into a failed reply.
+    try:
+        return rerank.stats_snapshot()
+    except Exception as exc:
+        return {"mode": rerank.MODE, "metrics_error": type(exc).__name__}
 
 
 def idem_conn() -> sqlite3.Connection:
@@ -604,6 +641,61 @@ def ts_label(ms) -> tuple[str, str]:
     return dt.strftime("%Y-%m-%d %H:%M (%A)"), dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def embedding_error_metadata(response, texts) -> dict:
+    """Extract operational fields only; never persist provider messages or inputs."""
+    try:
+        body = response.json()
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+    error = body.get("error")
+    error = error if isinstance(error, dict) else body
+    code = error.get("code") or error.get("type") or body.get("code")
+    known_codes = {"InvalidParameter", "InternalError.Algo.InvalidParameter", "DataInspectionFailed",
+                   "AccessDenied", "Arrearage", "Throttling", "InvalidApiKey", "QuotaExhausted",
+                   "InvalidRequest", "BadRequest", "invalid_parameter_error", "invalid_request_error",
+                   "insufficient_quota", "InternalError", "ServiceUnavailable"}
+    message = str(error.get("message", "")).lower()
+    category = "unclassified"
+    for label, terms in (
+        ("input_length", ("input length", "maximum context", "max length", "too long", "token limit")),
+        ("account", ("arrear", "balance", "overdue", "insufficient_quota")),
+        ("content_filter", ("inspection", "sensitive", "content filter")),
+        ("authentication", ("api key", "api_key", "unauthorized", "authentication")),
+        ("parameter", ("parameter", "invalid input")),
+    ):
+        if any(term in message for term in terms):
+            category = label
+            break
+    request_id = body.get("request_id") or response.headers.get("x-request-id") or response.headers.get("x-dashscope-request-id")
+    lengths = [len(t) for t in texts if isinstance(t, str)]
+    event = {"op": "embedding_error", "ts": round(time.time(), 3),
+             "request_id": getattr(_tls, "request_id", None),
+             "operation": getattr(_tls, "operation", "unknown"),
+             "upstream_status": response.status_code,
+             "provider_code": code if isinstance(code, str) and code in known_codes else "unrecognized",
+             "category": category, "input_count": len(texts),
+             "min_chars": min(lengths, default=0), "max_chars": max(lengths, default=0)}
+    if isinstance(request_id, str) and re.fullmatch(r"[0-9a-fA-F-]{16,64}", request_id):
+        event["provider_request_id"] = request_id
+    return event
+
+
+def embedding_raise_for_status(response, texts) -> None:
+    if response.status_code >= 400:
+        try:
+            log(embedding_error_metadata(response, texts))
+        except Exception as exc:
+            # A failed diagnostic write must never replace the original exception.
+            try:
+                print(json.dumps({"op": "embedding_diagnostic_error", "error": type(exc).__name__}),
+                      file=sys.stderr, flush=True)
+            except Exception:
+                pass
+    response.raise_for_status()
+
+
 def embed(texts: list[str]) -> list[list[float]]:
     """text-embedding-v4 via DashScope OpenAI-compatible endpoint. Key from env only."""
     import httpx
@@ -628,19 +720,44 @@ def embed(texts: list[str]) -> list[list[float]]:
                 _embed_usage["tokens"] += sum(len(t) for t in batch) // 4  # rough, API returns no usage
                 out.extend(e["values"] for e in resp.json()["embeddings"])
         return out
-    with httpx.Client(timeout=60) as client:
+    # 2026-10-18 Smoke#4: DashScope TLS handshakes stall intermittently ("handshake
+    # operation timed out") and the first failure used to surface as add/search 500.
+    # Now ConnectTimeout joins the existing 5-attempt backoff, under ONE 60s deadline
+    # per batch: every attempt (and every backoff sleep) is charged against the same
+    # 60s budget. The retry budget is bounded by the deadline; each request is still
+    # bounded by httpx phase timeouts (unchanged from the previous single 60s request).
+    # ReadTimeout and other transport errors raise on first occurrence, as before.
+    EMBED_BATCH_DEADLINE_S = 60.0
+    EMBED_CONNECT_CAP_S = 10.0
+    with httpx.Client() as client:
         for i in range(0, len(texts), 10):  # DashScope batch limit is 10 inputs
             batch = texts[i:i + 10]
+            deadline = time.monotonic() + EMBED_BATCH_DEADLINE_S
             for attempt in range(5):
-                resp = client.post(
-                    EMBED_BASE + "/embeddings",
-                    headers={"Authorization": f"Bearer {key}"},
-                    json={"model": EMBED_MODEL, "input": batch, "dimensions": EMBED_DIM, "encoding_format": "float"},
-                )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise httpx.ConnectTimeout("embed: 60s batch deadline exhausted after retries")
+                try:
+                    resp = client.post(
+                        EMBED_BASE + "/embeddings",
+                        headers={"Authorization": f"Bearer {key}"},
+                        json={"model": EMBED_MODEL, "input": batch, "dimensions": EMBED_DIM, "encoding_format": "float"},
+                        timeout=httpx.Timeout(remaining, connect=min(EMBED_CONNECT_CAP_S, remaining)),
+                    )
+                except httpx.ConnectTimeout:
+                    backoff = 2 ** attempt
+                    if attempt < 4 and (deadline - time.monotonic()) > backoff:
+                        time.sleep(backoff)
+                        continue
+                    raise
                 if resp.status_code in (429, 500, 502, 503, 504) and attempt < 4:
-                    time.sleep(2 ** attempt)
+                    backoff = 2 ** attempt
+                    if (deadline - time.monotonic()) <= backoff:
+                        embedding_raise_for_status(resp, batch)
+                        break
+                    time.sleep(backoff)
                     continue
-                resp.raise_for_status()
+                embedding_raise_for_status(resp, batch)
                 break
             body = resp.json()
             _embed_usage["tokens"] += int(body.get("usage", {}).get("total_tokens", 0))
@@ -716,6 +833,29 @@ def do_add(body: dict) -> tuple[int, dict]:
     return 200, resp
 
 
+def embed_query(query: str):
+    """Retry only a definitive input-length rejection with a bounded query copy.
+
+    Successful existing inputs and all other failures retain their old behavior.
+    Never fall back to lexical-only retrieval or rewrite the stored/raw query.
+    """
+    import httpx
+    meta = {"mode": "vector"}
+    try:
+        return embed([query])[0], meta
+    except httpx.HTTPStatusError as exc:
+        info = embedding_error_metadata(exc.response, [query])
+        if exc.response.status_code != 400 or info["category"] != "input_length":
+            raise
+        bounded = bound_text(query, EMBED_QUERY_BYTES)
+        if bounded == query:
+            raise
+    vector = embed([bounded])[0]
+    meta.update(query_truncated=True, original_chars=len(query), sent_chars=len(bounded),
+                sent_utf8_bytes=len(bounded.encode("utf-8")), method="head_tail_utf8")
+    return vector, meta
+
+
 def do_search(body: dict) -> tuple[int, dict]:
     for field in ("query", "user_id", "top_k"):
         if field not in body:
@@ -729,7 +869,11 @@ def do_search(body: dict) -> tuple[int, dict]:
     if not db_path(uid).exists():
         return 200, {"data": []}
 
-    qvec = embed([query])[0] if EMBED_ENABLED else None
+    embed_meta = {"mode": "disabled" if not EMBED_ENABLED else "vector"}
+    qvec = None
+    if EMBED_ENABLED:
+        qvec, embed_meta = embed_query(query)
+    _tls.embedding_meta = embed_meta
     with user_lock(uid):
         store = open_store(uid)
         try:
@@ -817,7 +961,8 @@ def do_search(body: dict) -> tuple[int, dict]:
         else:
             ab_stats = {"gated": False, "skipped": "not_reranked"}
     ev = {"op": "search", "n_lex": len(lexical), "n_vec": len(vec_hits), "returned": len(data),
-          "time_order": order_mode, "sec": round(time.perf_counter() - t0, 4)}
+          "time_order": order_mode, "sec": round(time.perf_counter() - t0, 4),
+          "embedding": embed_meta, "request_id": getattr(_tls, "request_id", None)}
     if mh_meta is not None:
         ev["mh"] = mh_meta  # metadata only: mode, reason code, counts, token usage, seconds
     if mh2_meta is not None:
@@ -829,10 +974,12 @@ def do_search(body: dict) -> tuple[int, dict]:
     if rr_meta is not None:
         ev["rerank"] = rr_meta  # metadata only: mode, reason code, counts, seconds
         if rerank.MODE != "off":
-            st = rerank.stats_snapshot()
+            st = safe_rerank_stats()
             ev["rerank_cum"] = {k: st[k] for k in ("searches", "reranked", "fallback", "fallback_reasons",
                                                    "calls_sent", "calls_unknown", "http_429", "valid_candidates",
-                                                   "queue_wait_s", "breaker_open")}
+                                                   "queue_wait_s", "input_tokens_reported", "usage_unavailable", "breaker_open") if k in st}
+            if "metrics_error" in st:
+                ev["rerank_cum"]["metrics_error"] = st["metrics_error"]
     log(ev)
     return 200, {"data": data}
 
@@ -844,8 +991,36 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send(self, code: int, payload: dict) -> None:
+        if code >= 400:
+            # Record response metadata only. Diagnostics must not block a reply.
+            path = getattr(self, "path", "")
+            event = {"op": "http_error", "status": code, "ts": round(time.time(), 3),
+                     "request_id": getattr(_tls, "request_id", None),
+                     "pid": os.getpid(), "method": getattr(self, "command", "unknown"),
+                     "route": path if path in ("/health", "/v1/memories/add", "/v1/memories/search") else "other"}
+            started = getattr(self, "_request_started", None)
+            if started is not None:
+                event["sec"] = round(time.monotonic() - started, 4)
+            error_type = getattr(self, "_request_error_type", None)
+            if error_type is not None:
+                event["error"] = error_type
+            upstream_status = getattr(self, "_upstream_status", None)
+            if isinstance(upstream_status, int):
+                event["upstream_status"] = upstream_status
+            try:
+                log(event)
+            except Exception as exc:
+                event["log_error"] = type(exc).__name__
+                try:
+                    print(json.dumps(event), file=sys.stderr, flush=True)
+                except Exception:
+                    pass
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
+        embedding_meta = getattr(_tls, "embedding_meta", None)
+        _tls.embedding_meta = None
+        if embedding_meta is not None:
+            self.send_header("X-AML-Embedding", embedding_meta["mode"])
         meta = getattr(_tls, "rerank_meta", None)
         if meta is not None:
             _tls.rerank_meta = None
@@ -861,7 +1036,8 @@ class Handler(BaseHTTPRequestHandler):
             h = {"status": "ok", "embedding": EMBED_MODEL if EMBED_ENABLED else "none(lexical-only)",
                  "embed_usage": _embed_usage}
             if rerank.ACTIVE:
-                h["rerank"] = rerank.stats_snapshot()  # metadata only
+                h["rerank"] = safe_rerank_stats()  # metadata only
+            h["request_concurrency"] = request_concurrency_snapshot()
             self._send(200, h)
         else:
             self._send(404, {"detail": {"reason": "not found"}})
@@ -875,6 +1051,33 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-Api-Key", "").strip() == API_KEY
 
     def do_POST(self):
+        if _request_slots is None:
+            return self._do_POST_unqueued()
+        with _request_activity_lock:
+            _request_activity["waiting"] += 1
+        try:
+            _request_slots.acquire()
+        except BaseException:
+            with _request_activity_lock:
+                _request_activity["waiting"] -= 1
+            raise
+        with _request_activity_lock:
+            _request_activity["waiting"] -= 1
+            _request_activity["active"] += 1
+        try:
+            return self._do_POST_unqueued()
+        finally:
+            with _request_activity_lock:
+                _request_activity["active"] -= 1
+            _request_slots.release()
+
+    def _do_POST_unqueued(self):
+        _tls.request_id = uuid.uuid4().hex
+        _tls.operation = self.path if self.path in ("/v1/memories/add", "/v1/memories/search") else "other"
+        _tls.embedding_meta = None
+        self._request_started = time.monotonic()
+        self._request_error_type = None
+        self._upstream_status = None
         _tls.rerank_meta = None
         if not self._authed():
             # auth BEFORE reading the body: an unauthenticated request never costs a body read.
@@ -906,7 +1109,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 code, payload = 404, {"detail": {"reason": "not found"}}
         except Exception as exc:  # never echo request bodies or secrets
-            log({"op": "error", "path": self.path, "error": type(exc).__name__})
+            self._request_error_type = type(exc).__name__
+            self._upstream_status = getattr(getattr(exc, "response", None), "status_code", None)
             code, payload = 500, {"detail": {"reason": f"internal error: {type(exc).__name__}"}}
         self._send(code, payload)
 
