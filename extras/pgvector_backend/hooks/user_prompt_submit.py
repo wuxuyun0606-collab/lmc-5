@@ -162,8 +162,7 @@ def build_pipeline_from_env():
     if rerank is not None:
         log.info("rerank channel: enabled")
     else:
-        log.info("rerank channel: disabled (no DEEPSEEK/OPENAI/VOYAGE key); "
-                 "falling back to score sort")
+        log.info("rerank channel: disabled; using retrieval scores")
 
     # 自发浮现——读 cache
     cache_path = __import__("pathlib").Path(

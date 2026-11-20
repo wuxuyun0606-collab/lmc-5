@@ -241,6 +241,14 @@ def cmd_vectors(args: argparse.Namespace) -> None:
 
 
 def cmd_recall(args: argparse.Namespace) -> None:
+    rerank = None
+    if args.reranker == "jev":
+        from .jev import jev_reranker
+
+        try:
+            rerank = jev_reranker(lambda hit: f"{hit.record.title}\n{hit.record.content}")
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     with MemoryStore(args.db) as store:
         store.init()
         rows = store.recall(
@@ -251,6 +259,7 @@ def cmd_recall(args: argparse.Namespace) -> None:
             entity_boost=not args.no_entity_boost,
             temporal_boost=not args.no_temporal_boost,
             trace=not args.no_trace,
+            rerank=rerank,
         )
     _print_json(rows)
 
@@ -553,6 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_recall = sub.add_parser("recall", parents=[parent], help="recall memories by text query")
     p_recall.add_argument("query")
+    p_recall.add_argument("--reranker", choices=["jev"], help="rerank candidates with TypeSafe JEV")
     p_recall.add_argument("--limit", type=int, default=5)
     p_recall.add_argument(
         "--no-relations",

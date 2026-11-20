@@ -62,6 +62,8 @@ The shipped analyzer uses PostgreSQL’s `simple` tokenization. Applications tha
 
 ## Add the components your agent needs
 
+For TypeSafe JEV reranking, install the JEV extra in the hook environment and explicitly select it. [JEV setup and fallback behavior](../../docs/JEV.md)
+
 | Component | What to connect | How to check it |
 |---|---|---|
 | Semantic recall | Supply an embedder to `PgvectorStore`, or pass vectors directly. Match the store’s model name and dimension to the indexed vectors and the SQL column. The default hook constructs the store with its defaults. A different model or dimension needs matching hook configuration in code. | Write a vector for a curated row with `owner_type="curated"`. Query it with the same model and verify the returned owner ID. [Vector backend](vector_pgvector.py) · [Embedder adapters](embedders.py) |
