@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="284" viewBox="0 0 1120 284" role="img" aria-labelledby="title desc">
+  <title id="title">LMC-5 · Living Memory Coordinate-5</title>
+  <desc id="desc">Five stacked index cards labeled X, Y, Z, E and M. A branching line connects events on the top card.</desc>
+  <defs>
+    <pattern id="grid" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.9" fill="#9e9a8b" opacity=".55"/>
+    </pattern>
+    <path id="card" d="M610 124 836 40Q842 38 849 40L1043 100Q1051 103 1043 106L815 193Q809 195 803 193L610 131Q601 128 610 124Z"/>
+  </defs>
+
+  <rect width="1120" height="284" rx="16" fill="#f4f0e7"/>
+  <rect x="551" y="12" width="557" height="260" rx="10" fill="url(#grid)"/>
+  <path d="M44 236h465" stroke="#c6bfb1"/>
+  <text x="42" y="157" fill="#212820" font-family="Helvetica Neue,Arial,sans-serif" font-size="137" font-weight="700" letter-spacing="-6">LMC-5</text>
+  <text x="47" y="209" fill="#444c43" font-family="Georgia,serif" font-size="31">Living Memory Coordinate-5</text>
+  <path d="M44 236h54" stroke="#ad4d31" stroke-width="4"/>
+
+  <!-- Offsets expose the five edges of the memory stack. -->
+  <g stroke="#455045" stroke-width="2" stroke-linejoin="round">
+    <use href="#card" transform="translate(-44 72)" fill="#72816d"/>
+    <use href="#card" transform="translate(-33 54)" fill="#d3a085"/>
+    <use href="#card" transform="translate(-22 36)" fill="#b5bda8"/>
+    <use href="#card" transform="translate(-11 18)" fill="#d9d1bd"/>
+    <use href="#card" fill="#fffcf5"/>
+  </g>
+
+  <!-- Branching timeline printed on the top sheet. -->
+  <g transform="matrix(1 -.37 1.02 .325 640 128)" fill="none">
+    <g stroke="#c8c6b6" stroke-width="1.3">
+      <path d="M8 28h177M8 65h177M8 102h177M8 139h177"/>
+      <path d="M33 9v145M71 9v145M109 9v145M147 9v145"/>
+    </g>
+    <g stroke-linejoin="round" stroke-linecap="round">
+      <path d="M18 118h38l33-37h38l33-37h22" stroke="#344537" stroke-width="5"/>
+      <path d="M55 118l25 22h52l27-24" stroke="#b65335" stroke-width="4"/>
+      <path d="M88 81 68 59H37" stroke="#879781" stroke-width="3"/>
+    </g>
+    <g stroke="#344537" stroke-width="3" fill="#fffcf5">
+      <circle cx="18" cy="118" r="6"/><circle cx="55" cy="118" r="6"/>
+      <circle cx="88" cy="81" r="6"/><circle cx="127" cy="81" r="6"/>
+      <circle cx="160" cy="44" r="6"/>
+    </g>
+    <circle cx="159" cy="116" r="6" fill="#b65335"/>
+  </g>
+
+  <g font-family="monospace" font-size="17" font-weight="700" text-anchor="middle">
+    <text x="996" y="109" fill="#344537">X</text>
+    <text x="987" y="133" fill="#344537">Y</text>
+    <text x="976" y="151" fill="#344537">Z</text>
+    <text x="965" y="169" fill="#422e23">E</text>
+    <text x="954" y="187" fill="#fffdf5">M</text>
+  </g>
+</svg>

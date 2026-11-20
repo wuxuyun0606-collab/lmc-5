@@ -1,10 +1,12 @@
-<h1 align="center">LMC-5</h1>
-<p align="center"><strong>五维活体记忆坐标</strong><br>让智能体换个会话，也能找回上次的决定，知道哪条事实仍然有效。</p>
-<p align="center"><a href="README.md">English</a> · <a href="docs/architecture.md">架构</a> · <a href="docs/DEPLOYMENT.md">部署</a> · <a href="docs/JEV.md">JEV 重排</a></p>
+![LMC-5 · 五维活体记忆坐标](docs/assets/memory-coordinates.svg)
 
-## 本地试跑
+**给智能体的跨会话记忆库。** 把发布决定存进 SQLite，下次打开会话就能查回来。流程变了，用同一个事实键写入新版，旧决定依然可以追溯。
 
-准备 Git 和带 SQLite FTS5 的 Python 3.9 或更高版本。在 macOS 或 Linux 终端执行下面的命令。安装完成后，默认的本地查询可以离线运行。
+[English](README.md)　·　[五层架构](docs/architecture.md)　·　[部署指南](docs/DEPLOYMENT.md)　·　[JEV 重排](docs/JEV.md)
+
+## 在本机找回第一条记忆
+
+准备 Git 和带 SQLite FTS5 的 Python 3.9 或更高版本。在 macOS 或 Linux 的终端执行：
 
 ```sh
 git clone https://github.com/wuxuyun0606-collab/lmc-5.git
@@ -12,43 +14,41 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
-```
 
-导入两条示例决定，再找出其中和回滚有关的那一条。
-
-```sh
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback
 ```
 
-第一条命令会建库，首次导入会看到 `"created": 2`。搜索结果里应有 **Confirm blast radius before production work**。下次打开终端，指向同一个文件就能再查到它。
-
-## 换个会话，记忆怎么接上
-
-用 `log-event` 保留一轮对话，用 `add` 存下今后还要用的决定，用 `recall` 找回它。比如项目换了发布流程，把新流程写到同一个事实键下，下个会话就能查到现行做法，旧版也留着供追溯。
+**你会看到什么？** 首次导入显示 `"created": 2`。搜索结果中的 **Confirm blast radius before production work** 就是样例里那条回滚决定。以后指向同一个数据库文件，就能再次查到它。
 
 <details>
-<summary><strong>展开看五层记忆各管什么</strong></summary>
+<summary>这条记忆在五层坐标里怎么用？</summary>
 
-| 层 | 作用 |
-| --- | --- |
-| X · 时间线 | 顺着一条工作线索，回看多次会话里的进展。 |
-| Y · 关系 | 沿已有关系最多走两跳，找出与当前问题相连的记忆。 |
-| Z · 事实演化 | 区分现行事实和已经被取代的版本。 |
-| E · 体验 | 由主智能体记录一段经历怎样影响今后的回应，并给出初始优先级。 |
-| M · 代谢 | 找出值得复核、整理或归档的记忆。 |
+- **X · 时间线** 将决定归入一条工作线，方便回看经过。
+- **Y · 关系** 把同一事件里的决定和后续验证连起来，召回时最多可以走两跳。
+- **Z · 事实演化** 在同一事实键下保留历史版本，指出哪条仍然有效。
+- **E · 体验** 由主智能体记录这次经历怎样影响以后的回应，并给出初始优先级。
+- **M · 代谢** 检查积累的记忆，标出值得复核、整理或归档的记录。
 
-[架构说明](docs/architecture.md) · [五层如何协作](docs/CONNECTING_XYZEM.md) · [Python 示例](examples/demo.py)
+[五层如何协作](docs/CONNECTING_XYZEM.md) · [可运行的 Python 示例](examples/demo.py)
 
 </details>
 
-## 部署与扩展
+## 接入你的项目
 
-| 想做什么 | 从这里开始 |
-| --- | --- |
-| 多次会话共用一个本地记忆库 | [SQLite 持久化与定时巡检](docs/DEPLOYMENT.md) |
-| 给已有智能体接 PostgreSQL | [pgvector 部署](extras/pgvector_backend/README.md) · [Claude Code 接入](docs/HOOKS_AND_RECALL.md) |
-| 用 TypeSafe JEV 给召回结果重排 | [在 SQLite 或 PostgreSQL 中启用 JEV](docs/JEV.md) |
-| 运行 AML 比赛用的 HTTP 服务 | [Add/Search 适配器](extras/aml/README.md) |
+**本地智能体**　让写入、查询和巡检都使用同一个 SQLite 文件。[持久化部署](docs/DEPLOYMENT.md)
 
-[克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [贡献指南](CONTRIBUTING.md) · [许可说明（v0.3.0 起采用 AGPL-3.0-or-later）](LICENSING.md)
+**PostgreSQL 与 Claude Code**　先用一条样例验证全文检索，再接入会话归档和召回。[pgvector 部署](extras/pgvector_backend/README.md) · [Hooks 接入](docs/HOOKS_AND_RECALL.md)
+
+**TypeSafe JEV**　给已召回的候选按相关性重新排序。SQLite 和 PostgreSQL 都支持显式启用。[配置 JEV](docs/JEV.md)
+
+<details>
+<summary>运行 AML 比赛用的 Add/Search HTTP 服务</summary>
+
+比赛适配器的依赖、凭据配置和启动方式见 [AML 部署说明](extras/aml/README.md)。
+
+</details>
+
+---
+
+[克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [参与贡献](CONTRIBUTING.md) · [开源与商业许可](LICENSING.md)
