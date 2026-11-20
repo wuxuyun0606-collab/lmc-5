@@ -6,7 +6,7 @@
 |---|---|---|
 | Registration snapshot · 16 Oct 2026 | [`v0.3.0-aml.1`](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1/extras/aml) · [`d02563a`](https://github.com/wuxuyun0606-collab/lmc-5/commit/d02563ad7885c027778429287a29d35e3fc2d6e7) | The Add/Search service, JEV bridge, budget ledger and launcher documented below. |
 | Code Full · 25 Oct source reconciliation | [`aml-code-full-reconciliation-20261025`](https://github.com/wuxuyun0606-collab/lmc-5/tree/aml-code-full-reconciliation-20261025/extras/aml) · [`4f72877`](https://github.com/wuxuyun0606-collab/lmc-5/blob/4f72877621eed555e17c72db6e1a40bc7c762855/extras/aml/CODING-SNAPSHOT-20261025.md) | On 13 Nov the maintainers reconciled the retained October source on `fix/aml-serving-recovery`. The snapshot records that comparison. |
-| Text-track retest · 30 Oct | No publicly verified commit | The reconciliation excludes the text retest implementation. The public record does not identify the code used or establish a score. |
+| Text-track retest · 30 Oct | No publicly verified commit | The reconciliation excludes the text retest implementation. |
 
 ## Registration snapshot
 
