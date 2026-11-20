@@ -106,7 +106,7 @@ def recall_fusion_settings_from_env() -> dict:
         "output_mode": os.environ.get("LMC5_RECALL_OUTPUT", "flat"),
     }
 
-def build_pipeline_from_env():
+def build_pipeline_from_env(exclude_session_id: str | None = None):
     """从环境变量构造 RecallPipeline。
 
     自动按存在的环境变量装配通道（PG 优先）：
@@ -190,7 +190,9 @@ def build_pipeline_from_env():
         except ValueError:
             literal_days = 30
         literal_search = rp_module.literal_raw_events_search_adapter(
-            pg, recent_days=literal_days
+            pg,
+            recent_days=literal_days,
+            exclude_session_id=exclude_session_id,
         )
 
     enable_raw_chunk = os.environ.get("LMC5_RAW_CHUNK_BRIDGE", "0").strip().lower()
@@ -218,7 +220,10 @@ def build_pipeline_from_env():
     return rp_module.RecallPipeline(
         vector_search=vector_search,
         fts_search=rp_module.fts_search_adapter(pg),
-        raw_events_search=rp_module.raw_events_search_adapter(pg),
+        raw_events_search=rp_module.raw_events_search_adapter(
+            pg,
+            exclude_session_id=exclude_session_id,
+        ),
         literal_search=literal_search,
         recent_raw_chunk_search=recent_raw_chunk_search,
         cold_archive_search=cold_archive_search,
@@ -250,7 +255,9 @@ def main() -> int:
         return 0
 
     try:
-        pipeline = build_pipeline_from_env()
+        pipeline = build_pipeline_from_env(
+            exclude_session_id=session_id or None
+        )
     except Exception as e:
         log.error("pipeline build failed: %s", e)
         return 0
