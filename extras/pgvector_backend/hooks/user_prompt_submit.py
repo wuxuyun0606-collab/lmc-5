@@ -8,15 +8,7 @@ Claude Code 的 UserPromptSubmit hook 在每条用户消息触发一次。
 参考实现：接 Claude Code hook 协议（stdin event JSON / stdout = additional context）。
 其他 agent runtime 改 main() 里的 IO 即可，recall + injection_text 的逻辑是通用的。
 
-集成（settings.json 节选）:
-    {
-      "hooks": {
-        "UserPromptSubmit": [{
-          "type": "command",
-          "command": "python -m extras.pgvector_backend.hooks.user_prompt_submit"
-        }]
-      }
-    }
+配置示例见 docs/HOOKS_AND_RECALL.md。
 """
 from __future__ import annotations
 
@@ -124,8 +116,8 @@ def build_pipeline_from_env():
       - 可选 LMC5_COLD_ARCHIVE_FALLBACK=1 接冷仓；只有暖层全空才开箱
       - DEEPSEEK/OPENAI key 或 VOYAGE rerank → rerank 通道
       - 永远读 perception cache 作为自发浮现通道
-      - graph_expand 默认 None（需要部署方按自家 schema 写 SQL，参考 docs/HOOKS_AND_RECALL.md）
-      - emotion_resonate 默认 None（需要部署方提供候选池 SQL）
+      - graph_expand 读取 lmc5_memory_relations 的有效关系
+      - emotion_resonate 从带 E 坐标的记忆中选取候选
     """
     import logging
     log = logging.getLogger("lmc5.hooks.user_prompt_submit")

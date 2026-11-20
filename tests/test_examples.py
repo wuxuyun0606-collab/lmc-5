@@ -22,3 +22,16 @@ def test_two_hop_graph_example_proves_contract(capsys) -> None:
     assert "Hop 1: verification checklist" in output
     assert "Hop 2: incident retrospective" in output
     assert "Blocked:" not in output
+
+
+def test_seed_file_imports_and_recalls_on_a_fresh_store(tmp_path) -> None:
+    from lmc5 import MemoryStore
+
+    seed = (ROOT / "examples" / "seed.jsonl").read_text(encoding="utf-8")
+    with MemoryStore(tmp_path / "seed.sqlite") as store:
+        store.init()
+        assert store.import_jsonl(seed) == (2, 0)
+        assert store.import_jsonl(seed) == (0, 2)
+        assert "Confirm blast radius before production work" in {
+            hit["title"] for hit in store.recall("rollback")
+        }

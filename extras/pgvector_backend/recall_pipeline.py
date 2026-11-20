@@ -1216,12 +1216,7 @@ def vector_search_adapter(
 
 
 def fts_search_adapter(conn, table: str = "lmc5_curated_memories"):
-    """PostgreSQL tsvector 全文检索适配器。需要表上有 content_tsv 列 + GIN 索引。
-
-    注意：调用方负责提供已建好 content_tsv 触发器的表；schema.sql 里没默认建
-    （tsvector 的语言配置因部署而异——'simple' 兼容多语种但不分词中文，'jieba'
-    需要安装 zhparser 等扩展）。
-    """
+    """Search the indexed content_tsv column supplied by schema.sql using simple tokens."""
     def call(query: str, top_k: int) -> list[RecallHit]:
         with conn.cursor() as cur:
             cur.execute(

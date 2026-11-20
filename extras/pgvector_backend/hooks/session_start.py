@@ -8,15 +8,7 @@ Claude Code 的 SessionStart hook 在新会话开窗时触发一次。
 additionalContext）。其他 agent runtime 改 main() 里的 IO 即可，
 build_startup_pack() 的逻辑是通用的。
 
-集成（settings.json 节选）:
-    {
-      "hooks": {
-        "SessionStart": [{
-          "type": "command",
-          "command": "python -m extras.pgvector_backend.hooks.session_start"
-        }]
-      }
-    }
+配置示例见 docs/HOOKS_AND_RECALL.md。
 """
 from __future__ import annotations
 
