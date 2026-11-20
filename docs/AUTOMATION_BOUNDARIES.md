@@ -72,4 +72,4 @@ See also:
 
 - [`Y_RELATIONS.md`](Y_RELATIONS.md) for relation types and graph-build details.
 - [`IMPLEMENTATION_ORDER.md`](IMPLEMENTATION_ORDER.md) for staged build order.
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) for cron/systemd wiring.
+- [Scheduling a job](DEPLOYMENT.md#schedule-a-job) for a SQLite patrol timer and PostgreSQL job verification.

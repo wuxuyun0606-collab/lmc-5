@@ -102,7 +102,7 @@ same patch:
   safe versus review relations correctly.
 - Tests: cover accepted types, review types not auto-expanding, strength
   thresholds, live endpoint filtering, and symmetric duplicate prevention.
-- Docs: this file plus README examples.
+- Run the [two-hop example](../examples/two_hop_graph.py) to inspect relation expansion.
 
 ## What Y Is Not
 

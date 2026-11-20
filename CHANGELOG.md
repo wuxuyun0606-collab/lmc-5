@@ -1,13 +1,14 @@
 # Changelog
 
-## 0.3.0-aml.1 — public AML serving snapshot
-
-- Published the deployed AML Add/Search HTTP service and TypeSafe JEV bridge under `extras/aml`.
-- Included transactional rerank budgeting, explicit ledger administration, portable startup configuration, systemd template, and third-party disclosure.
-- Added synthetic loopback acceptance tests for auth, idempotency, isolation, top-50 limits, paid-receipt accounting, and fallback; no evaluation datasets or credentials are distributed.
-- Preserved deployed algorithm function/class bodies; parameterized private runtime paths and account configuration. This tag identifies the serving snapshot; it does not enable every optional core feature.
-
 ## Unreleased
+
+### Deployment and recall
+
+- SQLite recall accepts `--reranker jev`. The PostgreSQL prompt hook accepts `LMC5_RERANKER=jev`. Both use the optional TypeSafe adapter. [Setup and data sent](docs/JEV.md)
+- The PostgreSQL schema creates the curated full-text column and its GIN index. Session-end transcript archival rolls back the batch on a failed write.
+- The prompt hook excludes raw events from the active session in keyword and literal searches.
+- The SQLite seed includes primary-agent E authorship. The quickstart checks the import count and retrieves a sample decision. Building the package requires setuptools 77.0.3 or newer.
+- Added the [AML version table](extras/aml/README.md#version-and-source-correspondence) and [documentation index](docs/README.md).
 
 ### Licensing
 
@@ -87,6 +88,13 @@
   - Direct E write-back and automated `backfill_e_axis()` are disabled.
   - `NightDream` and `DreamRunner` no longer expose automatic E-write steps.
 
+## 0.3.0-aml.1 — public AML serving snapshot
+
+- Published the deployed AML Add/Search HTTP service and TypeSafe JEV bridge under `extras/aml`.
+- Included transactional rerank budgeting, explicit ledger administration, portable startup configuration, systemd template, and third-party disclosure.
+- Added synthetic loopback acceptance tests for auth, idempotency, isolation, top-50 limits, paid-receipt accounting, and fallback; no evaluation datasets or credentials are distributed.
+- Preserved deployed algorithm function/class bodies; parameterized private runtime paths and account configuration. This tag identifies the serving snapshot; it does not enable every optional core feature.
+
 ## 0.2.0 — XYZEM completion: production reference impl + pipe layer
 
 This release turns LMC-5 from a memory schema with one offline impl into a
@@ -159,12 +167,7 @@ production impl alongside it.
 
 ### Status
 
-The `extras/pgvector_backend/` subpackage is **alpha**. See
-[extras/pgvector_backend/README.md](extras/pgvector_backend/README.md) for
-what works end-to-end vs what is deployment-specific (graph_expand and
-emotion_resonate need your relation/candidate-pool SQL) vs what is not yet
-covered (integration tests against a real PG, performance benchmarks,
-automated embedder migration).
+For the current integration and test coverage, see [PostgreSQL alpha status](extras/pgvector_backend/README.md#alpha-status). The historical `v0.2.0` tag and mainline commit `bff063c` have identical file trees.
 
 ## 0.1.0
 

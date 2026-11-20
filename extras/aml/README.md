@@ -1,16 +1,14 @@
 # AML memory API and JEV serving adapter
 
-This optional module publishes the LMC-5 team's AML serving implementation.
-It includes the synchronous Add/Search HTTP service, TypeSafe JEV adapter,
-serving bridge, durable budget ledger, budget administration tool, startup
-profile, and offline acceptance tests. The core `src/lmc5` remains offline and
-has no new dependencies. No provider weights, credentials, user memories,
-evaluation datasets, or private run logs are distributed.
-
 ## Version and source correspondence
 
-Submission version: **`v0.3.0-aml.1`** (the AML serving snapshot on the 0.3.0 core).
-This is a new submission tag, not the older `v0.2.0` release.
+| Record | Public source | What the source establishes |
+|---|---|---|
+| Registration snapshot · 16 Oct 2026 | [`v0.3.0-aml.1`](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1/extras/aml) · [`d02563a`](https://github.com/wuxuyun0606-collab/lmc-5/commit/d02563ad7885c027778429287a29d35e3fc2d6e7) | The Add/Search service, JEV bridge, budget ledger and launcher documented below. |
+| Code Full · 25 Oct source reconciliation | [`aml-code-full-reconciliation-20261025`](https://github.com/wuxuyun0606-collab/lmc-5/tree/aml-code-full-reconciliation-20261025/extras/aml) · [`4f72877`](https://github.com/wuxuyun0606-collab/lmc-5/blob/4f72877621eed555e17c72db6e1a40bc7c762855/extras/aml/CODING-SNAPSHOT-20261025.md) | On 13 Nov the maintainers reconciled the retained October source on `fix/aml-serving-recovery`. The snapshot records that comparison. |
+| Text-track retest · 30 Oct | No publicly verified commit | The reconciliation excludes the text retest implementation. The public record does not identify the code used or establish a score. |
+
+## Registration snapshot
 
 The serving sources were exported on 2026-10-16 from the exam deployment using
 an explicit file allowlist. `deployment-source.json` records their original
@@ -32,14 +30,14 @@ entry point and can run without auth. **Deploy through `start.sh`**.
 The reranking layer can be adapted to **Luna, JEV, or Clef**. Every deployment
 must supply its **own provider API credentials**. This repository contains no
 shared key, no project-funded API access, and no embedded exam-service credential.
-The current submitted/default launcher uses **JEV**. A legacy Clef/Clef-flash
+The registration launcher uses **JEV**. A legacy Clef/Clef-flash
 backend is included in `shell/rerank.py`; Luna requires an adapter implementing
 the same serving contract. The published acceptance tests validate JEV, not all
 three providers. Switching providers also requires the corresponding launcher
 configuration and provider-specific budget route/pricing; replacing only the
 model name is insufficient.
 
-## Actual submitted pipeline
+## Registration pipeline
 
 - SQLite files are partitioned by `user_id`; synchronous Add stores message
   text and optional embeddings. Repeated identical `request_id` payloads return
@@ -200,7 +198,7 @@ They do not establish official benchmark scores or production load capacity.
 
 ## Disclosure and license
 
-See [the submission text](SUBMISSION.zh-CN.md) for the form-ready description.
+See [the submission text](SUBMISSION.zh-CN.md) for the historical registration description.
 LMC-5 core and these first-party adapters follow the repository's
 AGPL-3.0-or-later license. Design influences are credited in
 [docs/credits.md](../../docs/credits.md). Provider services and client libraries

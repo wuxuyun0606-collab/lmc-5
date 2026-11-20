@@ -234,7 +234,7 @@ Definition of done:
 - `surface` combines live curated recall and raw event search safely.
 - Backups/snapshots exist before scheduled writes.
 
-Use `docs/DEPLOYMENT.md` for cron/systemd wiring after the staged core works.
+After validating the core, use the [scheduling guide](DEPLOYMENT.md#schedule-a-job) to install the SQLite patrol or schedule your PostgreSQL maintenance job.
 Use `docs/AUTOMATION_BOUNDARIES.md` as the final checklist for what can run
 unattended, what only runs after cron/callback wiring, and what must remain
 review-only.

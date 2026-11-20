@@ -24,6 +24,18 @@ Trade-offs:
 - No ANN approximation — every query returns exact cosine top-K
 - No index maintenance, no migrations, no daemons
 
+#### Check vector storage without a model key
+
+In a fresh SQLite database, the first memory has ID 1. For an existing database, use the ID printed by `add`. The deterministic toy embedder lets you check storage and retrieval locally.
+
+```sh
+lmc5 add --db vector-demo.sqlite --title "Release checklist" --content "Run the rollback rehearsal."
+lmc5 vector-upsert --db vector-demo.sqlite --owner-type memory --owner-id 1 --toy-text "rollback rehearsal"
+lmc5 vector-search --db vector-demo.sqlite --owner-type memory --toy-text "rollback rehearsal"
+```
+
+The result includes the release checklist. To use your own embeddings, pass `--vector` and the same `--model` on both operations.
+
 ### 2. PostgreSQL + pgvector + halfvec — *production*
 
 Shipped in `extras/pgvector_backend/vector_pgvector.py`. Uses pgvector's

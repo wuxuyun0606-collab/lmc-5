@@ -69,25 +69,19 @@ guidance.
 
 Concretely:
 
-- Default `z_conflict_audits.status = 'pending'`. Never auto-execute.
-- Only `--approve <id>` runs `supersede`.
+- Keep proposed conflict resolutions pending until reviewed.
+- The host applies a supersession only after the reviewer approves the specific pair.
 - The judging prompt must distinguish: same-fact overwrite vs tone shift
   vs sarcasm vs historical vs future-only.
 
-**Configuration example.** Schema in
-`extras/pgvector_backend/schema.sql` already defaults audit rows to
-`pending`. The CLI gate looks like:
+Preview potential conflicts in SQLite, then record pending reviews for the same database:
 
-```bash
-# Cron runs only the judgement pass (writes audit rows, never executes)
-python -m lmc5 z run
-
-# Human approves explicit ids — this is the only path that supersedes
-python -m lmc5 z approve 17 23 41
-
-# Reject anything the judge got wrong — record stays as evidence
-python -m lmc5 z reject 19
+```sh
+lmc5 z-audit --db demo.sqlite
+lmc5 z-audit --db demo.sqlite --apply
 ```
+
+The host supplies the approval and rejection workflow. For a PostgreSQL integration, a proposed resolution can be recorded as follows:
 
 ```python
 # In code: never call supersede directly. Always go through the audit table.
@@ -176,13 +170,7 @@ This is what makes a persona feel like it is **thinking about you**
 between sessions, instead of starting fresh every time. The mechanism is
 weighted-random sampling, not magic; the perceived effect is presence.
 
-**Configuration example.** A minimal scheduler entry plus the sampling
-sketch — adapt to your storage:
-
-```cron
-# Three times a day with 5-minute jitter — see DEPLOYMENT.md for systemd timer equivalent
-0 9,15,21 * * *  cd /opt/lmc5-agent && python -m lmc5 spontaneous-recall
-```
+In a PostgreSQL deployment, schedule a host entry point that supplies the candidate loader to [`Perception`](../extras/pgvector_backend/perception.py) and calls `surface_and_cache()`. Configure the prompt hook to read the same cache. The sampling logic below illustrates the storage query.
 
 ```python
 def spontaneous_recall(conn, k: int = 1) -> list[dict]:

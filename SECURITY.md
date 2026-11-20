@@ -25,7 +25,7 @@ Security-sensitive areas include:
 
 The reference implementation:
 
-- Makes no network calls.
+- Uses local ranking by default. Selecting `--reranker jev` sends the query and candidate text to TypeSafe. [JEV data handling](docs/JEV.md)
 - Stores data locally in SQLite.
 - Redacts recall output by default in the CLI.
 - Keeps patrol checks read-only.

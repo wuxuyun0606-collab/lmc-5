@@ -102,11 +102,11 @@ as a teaching implementation, a prototype sidecar for coding agents, or a
 foundation for richer memory backends.
 
 The project hypothesis is documented in
-[`docs/project_hypothesis.md`](project_hypothesis.md): long-running agents need
+[`docs/project_hypothesis.md`](../project_hypothesis.md): long-running agents need
 a memory lifecycle, not just a larger prompt or another vector store.
 
 Additional application framing is documented in
-[`docs/why_openai.md`](why_openai.md): Claude Code is a key workflow target, but
+[`docs/archive/why_openai.md`](why_openai.md): Claude Code is a key workflow target, but
 OpenAI / GPT-class API evaluation is useful for controlled extraction,
 benchmarking, stale-context tests, and provider-neutral adapter experiments.
 
