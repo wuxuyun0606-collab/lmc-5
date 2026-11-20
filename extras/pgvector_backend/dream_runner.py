@@ -41,8 +41,8 @@
     )
     result = runner.run()
 
-    # cron 入口
-    python -m extras.pgvector_backend.dream_runner
+    # 查看空 runner 的步骤；cron 应调用已注入回调的应用入口
+    python -m extras.pgvector_backend.dream_runner --dry-run
 
 设计：
     - 每步是一个 Callable，不传就跳——零耦合

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,6 +27,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+jev = ["requests>=2.32,<3"]
 
 [project.scripts]
 lmc5 = "lmc5.cli:main"

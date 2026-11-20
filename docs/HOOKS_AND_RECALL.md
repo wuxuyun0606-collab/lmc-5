@@ -36,14 +36,18 @@ the user is, what current facts are true, what the recent narrative
 arc looks like, what open threads are unfinished, and one or two
 spontaneously recalled memories. Injected as `additionalContext`.
 
-```jsonc
-// .claude/settings.json
+Run the commands from the checkout root with the PostgreSQL virtual
+environment active and `LMC5_PG_DSN` exported. If the agent works elsewhere,
+set the checkout on its `PYTHONPATH` and use the virtual environment's absolute
+Python executable in each command. Merge the event entries into the project's
+`.claude/settings.json`:
+
+```json
 {
   "hooks": {
-    "SessionStart": [{
-      "type": "command",
-      "command": "python -m extras.pgvector_backend.hooks.session_start"
-    }]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "python -m extras.pgvector_backend.hooks.session_start"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python -m extras.pgvector_backend.hooks.user_prompt_submit"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "python -m extras.pgvector_backend.hooks.session_end"}]}]
   }
 }
 ```
@@ -66,17 +70,6 @@ perception cache — written by a scheduled job, read at boot.
 Fires on every user message. This is **the** hook — the one that
 turns LMC-5 from a vault into a participant.
 
-```jsonc
-{
-  "hooks": {
-    "UserPromptSubmit": [{
-      "type": "command",
-      "command": "python -m extras.pgvector_backend.hooks.user_prompt_submit"
-    }]
-  }
-}
-```
-
 The hook routes the prompt through `RecallPipeline.recall()` — see
 the next section — and writes the resulting injection text to stdout.
 Claude Code attaches it as additional context for that single turn.
@@ -95,20 +88,8 @@ recall pipeline entirely — running full multi-channel recall on
 
 ### `SessionEnd` — archival
 
-Fires when the session closes. Archives the raw JSONL log into
-`lmc5_raw_events` (the append-only event journal), optionally
-triggers a "daytime express" hippocampus pass on just this session.
-
-```jsonc
-{
-  "hooks": {
-    "SessionEnd": [{
-      "type": "command",
-      "command": "python -m extras.pgvector_backend.hooks.session_end"
-    }]
-  }
-}
-```
+Fires when the session closes. Archives the text turns from the session JSONL into
+`lmc5_raw_events`. The optional express-dream callback needs application wiring.
 
 This is the only hook that writes raw events. **Curated memories
 are not written here** — they only land in `lmc5_curated_memories`
@@ -298,19 +279,9 @@ ones near the cap.
 
 ### Schedule
 
-The reference deployment runs it 3 times per day with jitter, plus
-once at boot:
-
-```cron
-# Three surfacings per day
-0 9,15,21 * * *  cd /opt/lmc5-agent && python -m extras.pgvector_backend.perception_runner
-```
-
-You can collapse this to once a day if the cache TTL is long enough
-for your usage, or push it to every hour if you want denser surface
-events. The trade-off is between "agent always brings up the same
-thing" (too rare) and "agent feels like it forgot what it just said"
-(too dense).
+Schedule your application’s perception job after testing its cache output.
+The checkout provides the `Perception` class. Set the same
+`LMC5_PERCEPTION_CACHE` path for the producer and the hooks.
 
 ### Strategy
 

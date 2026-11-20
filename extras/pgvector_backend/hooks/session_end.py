@@ -1,28 +1,18 @@
 """Hook · SessionEnd · 关窗口归档
 
 Claude Code 的 SessionEnd hook 在会话关闭时触发一次。
-作用：把这次 session 的 jsonl 原文导入 messages 表 + 提取 facts + 可选触发
-'day-time express' 做梦（白天版的简化 hippocampus）。
+作用：把 session JSONL 中的文本消息归档到 lmc5_raw_events。
 
 这层不写到 curated_memories——curated 由夜间 night_dream 才写。
 SessionEnd 只做 raw event journal 的入库，符合 LMC-5 "raw vs curated 分离"原则。
 
-集成（settings.json 节选）:
-    {
-      "hooks": {
-        "SessionEnd": [{
-          "type": "command",
-          "command": "python -m extras.pgvector_backend.hooks.session_end"
-        }]
-      }
-    }
+配置示例见 docs/HOOKS_AND_RECALL.md。
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -60,8 +50,14 @@ def archive_session_jsonl(
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            role = event.get("role") or event.get("type") or "unknown"
-            content = event.get("content")
+            if not isinstance(event, dict):
+                continue
+            nested = event.get("message")
+            message = event
+            if "content" not in event and isinstance(nested, dict):
+                message = nested
+            role = message.get("role") or event.get("role") or event.get("type") or "unknown"
+            content = message.get("content")
             if isinstance(content, list):
                 # Claude Code multimodal content blocks → 拼成文本
                 content = "\n".join(
@@ -74,18 +70,16 @@ def archive_session_jsonl(
 
             metadata = {k: v for k, v in event.items()
                         if k not in ("role", "type", "content")}
-            try:
-                cur.execute(
-                    f"INSERT INTO {messages_table} "
-                    f"  (session_id, role, content, metadata) "
-                    f"VALUES (%s, %s, %s, %s) "
-                    f"ON CONFLICT DO NOTHING",
-                    (session_id, role, content, json.dumps(metadata, ensure_ascii=False)),
-                )
-                count += cur.rowcount
-            except Exception:
-                # 单条入库失败不阻塞整段
-                continue
+            if message is not event:
+                metadata["message"] = {k: v for k, v in message.items() if k != "content"}
+            cur.execute(
+                f"INSERT INTO {messages_table} "
+                f"  (session_id, role, content, metadata) "
+                f"VALUES (%s, %s, %s, %s) "
+                f"ON CONFLICT DO NOTHING",
+                (session_id, role, content, json.dumps(metadata, ensure_ascii=False)),
+            )
+            count += cur.rowcount
     conn.commit()
     return count
 
@@ -117,7 +111,7 @@ def trigger_express_dream(conn, session_id: str) -> Optional[dict]:
 def extract_session_info(event: dict) -> tuple[Optional[str], Optional[Path]]:
     """从 hook event 里提取 session_id 和 jsonl 路径。"""
     sid = event.get("session_id") or event.get("sessionId")
-    jsonl = event.get("session_log") or event.get("sessionLog")
+    jsonl = event.get("transcript_path") or event.get("session_log") or event.get("sessionLog")
     return (
         sid if isinstance(sid, str) else None,
         Path(jsonl) if isinstance(jsonl, str) else None,

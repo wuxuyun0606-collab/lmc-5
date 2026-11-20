@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -2051,6 +2051,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         entity_boost: bool = True,
         temporal_boost: bool = True,
         trace: bool = True,
+        rerank: Callable[[str, list[RecallHit], int], list[RecallHit]] | None = None,
         gate_mode: GateMode = "recall",
     ) -> list[RecallHit]:
         candidates = self._recall_candidates(query, limit)
@@ -2131,7 +2132,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 )
             )
         hits.sort(key=lambda hit: (hit.score, hit.record.created_at or ""), reverse=True)
-        selected = hits[:limit]
+        selected = hits[:limit] if rerank is None else rerank(query, hits, limit)
 
         if selected:
             ids = [hit.record.id for hit in selected if hit.record.id is not None]
@@ -2177,6 +2178,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         entity_boost: bool = True,
         temporal_boost: bool = True,
         trace: bool = True,
+        rerank: Callable[[str, list[RecallHit], int], list[RecallHit]] | None = None,
     ) -> list[dict[str, Any]]:
         selected = [
             hit.to_dict()
@@ -2187,6 +2189,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 entity_boost=entity_boost,
                 temporal_boost=temporal_boost,
                 trace=trace,
+                rerank=rerank,
             )
         ]
         if redact:

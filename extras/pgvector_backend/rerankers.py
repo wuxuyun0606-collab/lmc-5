@@ -1,4 +1,4 @@
-"""Rerank adapters · DeepSeek / OpenAI / Anthropic / Voyage rerank API
+"""Rerank adapters · TypeSafe JEV / Voyage / DeepSeek / OpenAI
 
 recall_pipeline 的 rerank 通道是可选——调用方塞一个
 `(query, hits, top_k) -> hits` 的 callable 进去即可。
@@ -11,6 +11,7 @@ recall_pipeline 的 rerank 通道是可选——调用方塞一个
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Callable, Optional, TYPE_CHECKING
@@ -177,9 +178,28 @@ def voyage_reranker(
 def get_reranker() -> Optional[Callable[[str, list, int], list]]:
     """按环境变量顺序找可用 reranker。
 
-    顺序：VOYAGE（专用 rerank API）→ DeepSeek → OpenAI
+    显式选择 JEV 时只使用 TypeSafe。未指定时按 Voyage → DeepSeek → OpenAI 选择。
     全部失败返回 None；RecallPipeline 看到 None 自动按 score 排序。
     """
+    selection = os.environ.get("LMC5_RERANKER", "").strip().lower()
+    if selection and selection != "jev":
+        logging.getLogger(__name__).warning("Unrecognized LMC5_RERANKER; remote reranking disabled")
+        return None
+    if selection == "jev":
+        from lmc5.jev import jev_reranker
+
+        try:
+            score_hits = jev_reranker(lambda hit: f"{hit.title or ''}\n{hit.content}")
+        except ValueError as exc:
+            logging.getLogger(__name__).warning("JEV disabled: %s", exc)
+            return None
+
+        def rerank(query: str, hits: list, top_k: int) -> list:
+            ordered = sorted(hits, key=lambda hit: hit.score, reverse=True)
+            return score_hits(query, ordered, top_k)
+
+        return rerank
+
     for factory in (voyage_reranker, deepseek_reranker, openai_reranker):
         r = factory()
         if r is not None:

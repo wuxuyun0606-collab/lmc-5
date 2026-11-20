@@ -70,6 +70,14 @@ CREATE TABLE IF NOT EXISTS lmc5_curated_memories (
     )
 );
 
+-- Keyword fallback used by fts_search_adapter. Keep existing custom FTS columns.
+ALTER TABLE lmc5_curated_memories ADD COLUMN IF NOT EXISTS content_tsv tsvector
+    GENERATED ALWAYS AS (
+        to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
+    ) STORED;
+CREATE INDEX IF NOT EXISTS lmc5_curated_content_tsv_idx
+    ON lmc5_curated_memories USING GIN (content_tsv);
+
 CREATE INDEX IF NOT EXISTS lmc5_curated_status_idx
     ON lmc5_curated_memories (version_status);
 CREATE INDEX IF NOT EXISTS lmc5_curated_fact_key_idx

@@ -1,222 +1,75 @@
-# pgvector backend (opt-in)
+# PostgreSQL and pgvector
 
-> Production-grade ANN reference for LMC-5.
-> Opt-in. Does not change the offline-first SQLite default.
+Use this backend when your agent already uses PostgreSQL or needs an approximate vector index. It ships in the source checkout as a set of Python modules. The installed `lmc5` command always opens SQLite.
 
-## Alpha Status (read this first)
+下面三步可以在空的测试库里验证关键词召回，全程不用模型密钥。先跑通这一条，再接向量、hook 或夜间任务。以下命令从仓库根目录执行。
 
-This subpackage is **alpha**. Architecture is in place; some integration
-plumbing is reference-only and needs deployment-specific wiring.
+## 1. Prepare a database
 
-**What works end-to-end:**
+You need a PostgreSQL server with the pgvector extension installed for **that server’s major version**, the `psql` client, and a role allowed to create the extension and tables in a dedicated database. The supplied schema uses stored generated columns and `halfvec` (pgvector 0.7+). Use a new database for the walkthrough.
 
-- `vector_pgvector.PgvectorStore` — schema, write, search, find_duplicates
-- `night_dream.NightDream` — proposer → gate → write → relation expansion → semantic dedup
-- `narrative_timeline.NarrativeTimeline` — weekly / monthly reflection
-- `ob_recall.ob_score` + decay formula + time ripple + Russell distance
-- `e_axis_scorer.EAxisScorer` — non-authoritative proposal helper; never writes E
-- `perception.Perception` — spontaneous-recall scheduler + JSON cache
-- `recall_pipeline.RecallPipeline` — multi-channel parallel merge
-- `config.LMC5Config` — every knob in one dataclass, env-var loadable
-- `schema.sql` — full DDL for every table referenced anywhere in the codebase
-- `embedders.py` — Gemini / Voyage / OpenAI / local BGE-M3 adapters with auto-pick
-- `rerankers.py` — DeepSeek / OpenAI / Voyage rerank adapters with auto-pick
-- `hooks/{session_start,user_prompt_submit,session_end}.py` — Claude Code hook entrypoints
+With the virtual environment from the [quickstart](../../README.md) active, install the PostgreSQL driver. This example uses local PostgreSQL authentication and the current role. If your administrator already created a database for you, skip `createdb` and set the connection string to that database.
 
-**What is deployment-specific (the hook auto-builder leaves these `None`):**
+```bash
+python -m pip install psycopg2-binary
+createdb lmc5_demo
+export LMC5_PG_DSN='dbname=lmc5_demo'
+```
 
-- `graph_expand` — needs your relation schema's exact SQL for 2-hop expansion
-- `emotion_resonate` — needs your candidate-pool SQL for Russell distance
+For a remote server, use a connection service or host/database settings and a PostgreSQL password file for authentication. [.env.example](.env.example) lists optional settings. Export settings into the process that starts the hooks. The modules do not automatically load a file named `.env`.
 
-Both are documented in `docs/HOOKS_AND_RECALL.md`. They are intentionally
-left as `None` rather than guessing — wiring them with the wrong schema
-silently returns garbage; leaving them off is safer.
+## 2. Apply the schema
 
-**Not yet covered:**
+Confirm the database and role printed by the first command before running the second. On an existing installation, review schema changes and take a backup first. Adding a stored search column to a populated table can rewrite it.
 
-- End-to-end integration tests against a real PostgreSQL instance
-- Performance benchmarks (latency, recall@K, embedding cost per turn)
-- Automated embedder migration (3072d → 1024d) — see `docs/VECTOR_BACKENDS.md`
-  for the manual procedure
+```bash
+psql -X --dbname="$LMC5_PG_DSN" -c 'SELECT current_database(), current_user'
+psql -X --dbname="$LMC5_PG_DSN" -v ON_ERROR_STOP=1 --single-transaction -f extras/pgvector_backend/schema.sql
+psql -X --dbname="$LMC5_PG_DSN" -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+```
 
-**Recommended posture:** treat this as a working starting point for
-building an LMC-5-backed agent. Read the docstrings, wire your storage,
-and expect to write integration tests against your own schema before
-trusting it with anything you cannot afford to lose. File issues for
-sharp edges you hit.
+`extension "vector" is not available` means the server needs pgvector installed. An unknown `halfvec` type usually means the extension in this database needs upgrading. The default vector column is `halfvec(3072)`.
 
-The core `src/lmc5/vector.py` uses SQLite + JSON + Python cosine — fine for
-demos and small corpora, slow once you cross a few thousand vectors.
+## 3. Recall one record
 
-This `extras/pgvector_backend/` folder is a drop-in alternative for users who
-want PostgreSQL + pgvector (with halfvec) + ivfflat index, plus several
-reference implementations of axes that the core only sketches.
+The following check uses the same keyword adapter as the prompt hook. It inserts a sample in a transaction, searches for it, and rolls the transaction back when the connection closes. Run from the checkout root so Python can import `extras`.
 
-Nothing here is imported by the core package. You install and wire it up
-yourself.
+```bash
+python - <<'PY'
+import os
+from contextlib import closing
 
-Remote embedding adapters run all outbound text through
-`lmc5.redact.redact_embedding_input()` before truncation and transmission.
-This is a last-line secret/infrastructure scrub, not a substitute for deciding
-which memories are allowed to leave the local machine.
+import psycopg2
+from extras.pgvector_backend.recall_pipeline import fts_search_adapter
 
-## Why opt-in
+with closing(psycopg2.connect(os.environ["LMC5_PG_DSN"])) as conn:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO lmc5_curated_memories (source, category, title, content)
+            VALUES ('demo', 'note', 'Release checklist', 'Run the rollback rehearsal.')
+            RETURNING id
+        """)
+        sample_id = cur.fetchone()[0]
+    hits = fts_search_adapter(conn)("rollback", 10)
+    assert any(hit.source_id == sample_id for hit in hits), "Sample missing from recall"
+    print("PostgreSQL keyword recall OK")
+PY
+```
 
-- LMC-5 stays provider-free and offline-first by default. PostgreSQL is a real
-  external dependency.
-- Every file here is a reference, not a finished feature. Read it like a
-  worked example, not a black box.
-- Picking pgvector means you accept a different operational shape: a database
-  to keep running, a backup story, and an embedding provider.
+Seeing **PostgreSQL keyword recall OK** confirms the schema, driver and curated text search work together. For a keyword-only hook, use this driver-only virtual environment. If `sentence-transformers` is already installed, the hook tries to load BGE-M3 when no remote embedder is configured. The first load may download model files.
 
-## Files
+The shipped analyzer uses PostgreSQL’s `simple` tokenization. Applications that need Chinese word segmentation can configure a matching text index and query analyzer.
 
-| File | Replaces / Adds | Summary |
-|------|----------------|---------|
-| `config.py` | new | `LMC5Config` dataclass — every threshold, batch size, top-K, retry knob in one place. `LMC5Config.from_env()` loads from env vars; ships a `retry_llm_call` decorator + `RetryableLLMError` exception. |
-| `schema.sql` | new | Full DDL, including primary-authored E fields and a separate non-authoritative `lmc5_e_axis_proposals` queue. Run before any of the Python modules. |
-| `.env.example` | new | Environment template — PG DSN, embedder choice (Gemini / Voyage / local), housekeeper LLM keys (DeepSeek default), `LMC5_*` config overrides, Telegram bot token, log/backup paths. **Copy to `.env` and never commit real values.** |
-| `vector_pgvector.py` | replaces `src/lmc5/vector.py` | PostgreSQL + halfvec + ivfflat ANN. Embedder injected via callable. |
-| `night_dream.py` | upgrades `hippocampus.py` + `consolidation.py` | LLM proposer + 6-type classifier + safety gates + safe-relation expansion driven by `candidate.relation_hints`. Proposer/candidate-write failures raise for retry; noncritical enrichment failures and `max_promote` truncations log explicitly. Falls back to deterministic baseline if no LLM is wired. |
-| `narrative_timeline.py` | new (no core equivalent) | Weekly / monthly narrative index. E seeds start from primary-agent initial priority; non-E seeds use weight. Reflector is injected; default is deterministic. |
-| `ob_recall.py` | upgrades `scoring.py` | Ombre-Brain-style score with category half-life, time ripple, Russell distance for emotional resonance. Decay formula shared between write-time and metabolism. |
-| `e_axis_scorer.py` | proposal helper only | Provider-agnostic LLM analysis that can submit an auditable suggestion. It cannot author E or set initial priority. |
-| `e_axis_trigger.py` | proposal routing only | `should_propose_e_axis(...)` gates candidates into `lmc5_e_axis_proposals`. Direct E write-back and automated backfill are disabled. |
-| `dream_runner.py` | nightly pipeline orchestrator | Chains consolidate → nap → hippocampus → heartbeat proposals → per-thread `timeline_sweep` → narratives → Z audit → patrol. It has no automatic E writer or E backfill step. |
-| `heartbeat_detector.py` | new — the missing "what to save" layer for persona | Detects heartbeat moments (intimacy / physical reactions / nickname shifts) and emotional fragments (breakdown / crying / late-night emo / self-denial) from conversation chunks. Keyword gate (CN+EN bilingual) + optional LLM confirmation. Outputs detector candidates only; convert with `to_hippocampus_candidate_dict()` and feed hippocampus/NightDream. Do **not** directly insert detector raw text into curated memories. |
-| `heartbeat_trigger.py` | new — real-time heartbeat detection for hooks | Per-message keyword gate with a default 10-turn reminder throttle. Injects a prompt into additionalContext only when a matched heartbeat signal is outside the throttle window. Optional scene_lookup surfaces the last similar heartbeat. The AI decides whether to save — trigger ≠ auto-store. |
-| `recall_pipeline.py` | new — closes the "store-to-conversation" gap | Full pipeline: optional Query Expansion (LLM → 2-4 search angles) → three-tier cascade (vector → curated FTS → raw-events FTS) → three independent channels (Y-graph 2-hop / Russell emotion / spontaneous) → merge/dedup → optional rerank. Includes `query_expand_adapter` helper for DeepSeek/any LLM. |
-| `recall_history.py` | session-level injection dedup | Remembers `namespace+source_id` values already injected on earlier turns of the active session. File mode stores hashes only and works across per-turn hook subprocesses; in-memory mode is available for long-lived services/tests. |
-| `perception.py` | new | Spontaneous-recall scheduler. Weighted random over high-vitality memories with a deliberate drift fraction, plus time-of-day shaping (night-emotional vs work-factual boost). Writes a JSON cache that the SessionStart and per-turn hooks read. |
-| `hooks/session_start.py` | new — Claude Code hook | Boot-time additionalContext: identity + current facts + recent narrative + open threads + spontaneous-recall surface. |
-| `hooks/user_prompt_submit.py` | new — Claude Code hook | Per-turn additionalContext: routes the prompt through `RecallPipeline.recall()`. Skips trivial messages. Attaches user-emotion coordinate as metadata. |
-| `hooks/session_end.py` | new — Claude Code hook | Archives the session JSONL into `lmc5_raw_events`. Optionally triggers a daytime express dream pass (off by default). |
+## Add the components your agent needs
 
-### Migrations
+For TypeSafe JEV reranking, install the JEV extra in the hook environment and explicitly select it. [JEV setup and fallback behavior](../../docs/JEV.md)
 
-| File | Purpose |
-|------|---------|
-| `migrations/20260620_quarantine_heartbeat_detector_pollution.sql` | Archives old rows created by the invalid `source='heartbeat_detector'` direct-insert path, removes their vectors, closes their relation edges, and leaves an audit trail. Use this when detector raw transcripts polluted `lmc5_curated_memories`. |
+| Component | What to connect | How to check it |
+|---|---|---|
+| Semantic recall | Supply an embedder to `PgvectorStore`, or pass vectors directly. Match the store’s model name and dimension to the indexed vectors and the SQL column. The default hook constructs the store with its defaults. A different model or dimension needs matching hook configuration in code. | Write a vector for a curated row with `owner_type="curated"`. Query it with the same model and verify the returned owner ID. [Vector backend](vector_pgvector.py) · [Embedder adapters](embedders.py) |
+| Session hooks | Run modules from the checkout with the same interpreter and exported DSN. The prompt hook wires curated/raw text search, graph expansion and emotion resonance. Semantic search and reranking depend on the installed adapters and available keys. Remote HTTP adapters use `requests`. | Send a sample prompt and inspect the returned text. For archival, verify a sample transcript produced a row in `lmc5_raw_events`. [Hook code](hooks/) · [Recall pipeline](../../docs/HOOKS_AND_RECALL.md) |
+| Nightly consolidation | Supply the chunk reader, candidate writer and relation callbacks to your application’s `NightDream` job. Pass that job to `DreamRunner`. Review candidate output before enabling writes. | Check each configured step in `result.to_dict()` and the edges written for a known sample. [Scheduling](../../docs/DEPLOYMENT.md) · [Y relations](../../docs/Y_RELATIONS.md) |
 
-**NightDream failure contract.** An injected proposer must raise on transport
-errors, timeouts, empty response bodies, and response parse failures. Only a
-successfully parsed `{"candidates":[]}` may return an empty list. In apply mode,
-missing or failed candidate writes raise `NightDreamWriteError`; the caller must
-acknowledge or advance its batch watermark only after `NightDream.run()` returns.
-Candidate writes should be idempotent so a retry remains safe after a partial run.
+Installing the schema gives you empty tables. The host application supplies the memories, embeds the rows it wants to search, and schedules any background work. The two [migration scripts](migrations/) target specific earlier deployments. Read their preconditions before applying one to existing data.
 
-**Semantic dedup wired into `night_dream`.** Pass a
-`find_semantic_duplicates` callable (typically backed by
-`PgvectorStore.find_duplicates(threshold=0.92)`) at construction time
-and the dream pass will reject cross-batch synonyms before they
-flood the relation graph. See `docs/HOOKS_AND_RECALL.md` for the
-wiring example.
-
-## Setup order
-
-1. `psql -f schema.sql` against your target database
-2. Copy `.env.example` to `.env` and fill in keys / DSN / overrides
-3. Construct an `LMC5Config` (default or `LMC5Config.from_env()`)
-4. Instantiate each module with the config + injected callables
-
-## Provider-free philosophy
-
-Every module here keeps LMC-5's rule: external services go through `Callable`
-injection. Default behaviors stay deterministic so the modules can still run
-without API keys or network access. You only pay the LLM bill where you
-explicitly wire it in.
-
-## How to read this folder
-
-Start with the file docstrings — each one explains:
-
-1. Which core file it corresponds to
-2. What the core version does and what it does not do
-3. What this version adds
-4. How to integrate (pseudocode example at the top)
-
-### Recall priority
-
-This backend is storage-first by design:
-
-1. A primary curated semantic adapter is the main path (`pgvector` over
-   `lmc5_curated_memories` / `lmc5_vectors` in this reference backend; SQLite or
-   custom adapters can expose the same role).
-2. curated FTS / keyword search is the fallback when semantic confidence is weak.
-3. Raw-events FTS is the last-resort journal search.
-4. Literal raw-events / raw_chunk / graph / emotion / perception are gated side
-   channels, not replacements for the curated main path.
-
-Do not mix legacy SQLite rows, transcript tails, or cold/session archive cards
-into the same main ranking unless you explicitly label and gate them as
-last-resort evidence.
-
-`RecallPipeline.trace` and every hit's `metadata` expose the layer decision:
-`recall_layer`, `recall_tier`, `evidence_role`, `source_label`, channel
-`score_breakdown`, and top-level cascade gates (`fts_checked`,
-`raw_events_checked`, `cold_archive_checked`, etc.). Keep these fields when building UI/debug output;
-they are the guardrail that prevents "main memory", "raw evidence", and "cold
-archive hint" from wearing the same fake mustache.
-
-Set `LMC5_RECALL_OUTPUT=layered` or `RecallPipeline(output_mode="layered")` to
-return a four-section `RecallResult.layers`: `main_recall` (authority),
-`source_neighborhood` (short navigation), `graph_expansion` (association), and
-`fallback_archive` (last-resort raw/cold archive evidence).
-`flat` is still the default; old consumers do not need to know this feature
-exists until they grow up and ask for a map.
-
-The reference `UserPromptSubmit` hook also enables **session-scoped injection
-history** by default. This is separate from the merge/dedup inside one recall
-call: after memory `curated:42` has been injected once, later turns in the same
-session filter it before rerank/top-k so a lower-ranked novel candidate can
-fill the slot. A different session may recall `curated:42` again. The default
-file state contains hashes only and expires after two days. Set
-`LMC5_SESSION_RECALL_DEDUP=0` to disable it, or use
-`LMC5_SESSION_RECALL_STATE_DIR` to choose a different state directory.
-
-Inside a single recall call, the pipeline also performs **content-level
-deduplication** after its existing `namespace+source_id` merge. This closes the
-case where two stores contain the same memory under different ids, or one copy
-has a leading source label such as `[knowledge_base]`. The higher-scored copy
-wins, channels and score diagnostics are merged, and the duplicate does not
-inflate the fused score. Digits remain significant. Pass
-`content_fingerprint=None` to `RecallPipeline`, or set
-`LMC5_RECALL_CONTENT_DEDUP=0` for the reference hook, to preserve every copy.
-
-`LMC5_COLD_ARCHIVE_FALLBACK=1` optionally wires `lmc5_cold_storage` as the cold
-box. The pipeline only opens it when PG/curated vector, curated FTS, raw-events,
-and literal/source-neighborhood hits are all empty. If it surfaces, treat it as
-evidence to inspect, not an active fact.
-
-`vector_pgvector.py` is the smallest piece and the most directly swappable.
-Begin there if you only want a faster vector backend.
-
-### Dream result reporting
-
-`DreamRunner.run()` returns a `DreamResult` with both a human-readable
-`summary` and a structured `to_dict()` payload. The payload includes `ok`,
-`step_counts`, per-step status/duration/error fields, and timeline sweep
-sub-results. Use `to_dict()` for nightly logs, dashboards, or Telegram reports
-so a failed X-line cleanup does not get mistaken for a failed whole dream run.
-
-`night_dream.py` and `narrative_timeline.py` matter most for **long-running
-agents** — a deployment that runs for months and needs to remember what
-happened last Tuesday in narrative form, not raw chunks.
-
-`ob_recall.py` and `e_axis_scorer.py` are the recall and emotion plumbing
-that turn an XYZEM database into something that actually **ranks well at
-3 a.m.**, when half the things in memory have already been forgotten by
-context.
-
-## Status
-
-Reference implementations. Tested in private long-running deployments before
-extraction. Not currently covered by the LMC-5 test suite — adapt to your
-own integration tests.
-
-## License
-
-Same as the parent project: `AGPL-3.0-or-later` from version 0.3.0, with a
-separate commercial-licensing path for proprietary use. Releases through
-`v0.2.0` remain under their original MIT License. See the repository root
-`LICENSING.md`.
+[Automation boundaries](../../docs/AUTOMATION_BOUNDARIES.md) · [Vector choices](../../docs/VECTOR_BACKENDS.md) · [License](../../LICENSING.md)
