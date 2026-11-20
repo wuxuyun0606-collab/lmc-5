@@ -221,7 +221,7 @@ queries, and raw_chunk is off unless explicitly enabled.
 - `rrf`: Reciprocal Rank Fusion. It ignores original score magnitudes and fuses
   by within-channel rank. This is the default hook mode after a 726-real-trace
   A/B replay showed cleaner top5 composition and stronger cross-channel
-  validation than `minmax`; see `docs/RECALL_FUSION_AB_20260706.md`. Tune
+  validation than `minmax`; see [the fusion replay](archive/RECALL_FUSION_AB_20260706.md). Tune
   `LMC5_RECALL_RRF_K` if needed.
 - `minmax`: normalize scores within each channel, then apply channel priors.
   This prevents fixed-score channels such as graph expansion from dominating

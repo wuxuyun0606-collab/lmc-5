@@ -39,7 +39,7 @@ LMC-5 also credits these design influences:
 - LMC-5 does not include MCP or Claude Code hook installers in the core; it is
   intentionally compatible through CLI, Python API, wrapper scripts, hooks, or
   sidecar adapters.
-- LMC-5 keeps the default package network-free and provider-free.
+- Default SQLite recall runs locally. Users can opt into external reranking by TypeSafe. [JEV adapter](JEV.md)
 - LMC-5 uses read-only patrol checks; lifecycle mutation remains explicit.
 - LMC-5 describes breath, chunks, chord emotion, forge, refined carryover, and
   swap as deployment/design patterns, not hidden hosted services in the core

@@ -1,8 +1,12 @@
-![LMC-5 · 五维活体记忆坐标](docs/assets/memory-coordinates.svg)
+# LMC-5
+
+![LMC-5 · 五维活体记忆坐标](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
 **给智能体的跨会话记忆库。** 把发布决定存进 SQLite，下次打开会话就能查回来。流程变了，用同一个事实键写入新版，旧决定依然可以追溯。
 
-[English](README.md)　·　[五层架构](docs/architecture.md)　·　[部署指南](docs/DEPLOYMENT.md)　·　[JEV 重排](docs/JEV.md)
+[English](README.md)　·　[中文导览与安装自检](docs/LMC-5可分享导览与安装自检_20260702.md)　·　[文档目录](docs/README.md)　·　[五层架构](docs/architecture.md)　·　[部署指南](docs/DEPLOYMENT.md)　·　[JEV 重排](docs/JEV.md)
+
+X 时间线 · Y 关系 · Z 事实演化 · E 体验 · M 代谢
 
 ## 在本机找回第一条记忆
 
@@ -30,6 +34,13 @@ lmc5 recall --db demo.sqlite rollback
 - **E · 体验** 由主智能体记录这次经历怎样影响以后的回应，并给出初始优先级。
 - **M · 代谢** 检查积累的记忆，标出值得复核、整理或归档的记录。
 
+用同一个事实键更新发布负责人。第二条生效后，第一条仍可追溯。
+
+```sh
+lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Alice owns releases."
+lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Sam owns releases."
+```
+
 [五层如何协作](docs/CONNECTING_XYZEM.md) · [可运行的 Python 示例](examples/demo.py)
 
 </details>
@@ -45,7 +56,7 @@ lmc5 recall --db demo.sqlite rollback
 <details>
 <summary>运行 AML 比赛用的 Add/Search HTTP 服务</summary>
 
-比赛适配器的依赖、凭据配置和启动方式见 [AML 部署说明](extras/aml/README.md)。
+报名快照为 `v0.3.0-aml.1`。代码 Full 对账记录、文本赛道公开状态和部署步骤见 [AML 版本对照表](extras/aml/README.md#version-and-source-correspondence)。
 
 </details>
 

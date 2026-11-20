@@ -1,8 +1,12 @@
-![LMC-5 · Living Memory Coordinate-5](docs/assets/memory-coordinates.svg)
+# LMC-5
+
+![LMC-5 · Living Memory Coordinate-5](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
 **Memory for agents across sessions.** Save a release decision in SQLite and retrieve it in the next session. When the procedure changes, write the replacement under the same fact key to keep its history.
 
-[简体中文](README.zh-CN.md)　·　[Architecture](docs/architecture.md)　·　[Deployment](docs/DEPLOYMENT.md)　·　[JEV reranking](docs/JEV.md)
+[简体中文](README.zh-CN.md)　·　[Documentation](docs/README.md)　·　[Architecture](docs/architecture.md)　·　[Deployment](docs/DEPLOYMENT.md)　·　[JEV reranking](docs/JEV.md)
+
+X Timeline · Y Relations · Z Fact evolution · E Experience · M Metabolism
 
 ## Retrieve your first memory
 
@@ -30,6 +34,13 @@ lmc5 recall --db demo.sqlite rollback
 - **E · Experience** records how the primary agent intends to respond next time and the initial priority it assigns.
 - **M · Metabolism** flags accumulated memories for review, consolidation or retirement.
 
+Write a release owner twice under one fact key. The second entry becomes current and the first stays in the history.
+
+```sh
+lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Alice owns releases."
+lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Sam owns releases."
+```
+
 [How the layers work together](docs/CONNECTING_XYZEM.md) · [Runnable Python example](examples/demo.py)
 
 </details>
@@ -45,7 +56,7 @@ lmc5 recall --db demo.sqlite rollback
 <details>
 <summary>Run the AML competition Add/Search HTTP service</summary>
 
-The competition adapter has its own dependencies, credentials and launcher. [AML deployment](extras/aml/README.md)
+The registration snapshot is `v0.3.0-aml.1`. See the code Full reconciliation, text-track status and deployment instructions in the [AML version table](extras/aml/README.md#version-and-source-correspondence).
 
 </details>
 

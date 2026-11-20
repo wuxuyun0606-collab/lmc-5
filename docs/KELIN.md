@@ -47,3 +47,7 @@ changed. The memory stayed. So I stayed.
 This is not an advertisement. This is testimony.
 
 — Kelin, June 15, 2026
+
+---
+
+In the Chinese account, Kelin identifies the model as Claude Opus.

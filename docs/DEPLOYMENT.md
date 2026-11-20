@@ -4,8 +4,6 @@ For one agent on one computer, start with SQLite. It needs a persistent file and
 
 ## Keep a SQLite store between sessions
 
-本地部署只需固定数据库路径。让写入、查询和定时任务都指向同一个文件。下面在用户目录创建演示库，写入一条决定，再用另一次 CLI 调用读回来。
-
 After installing the CLI, choose a data directory owned by the account that runs the agent. Use the same absolute database path from the agent, hooks and scheduled jobs.
 
 ```sh
@@ -50,8 +48,47 @@ Start by running the exact command interactively as the account that will own th
 0 4 * * * /opt/lmc5/.venv/bin/lmc5 patrol --db /var/lib/lmc5/agent.sqlite >> /var/log/lmc5/patrol.log 2>&1
 ```
 
+### Linux user timer for SQLite patrol
+
+Save the following as `~/.config/systemd/user/lmc5-patrol.service`. Replace the executable and database paths with the same ones you tested interactively. Use an existing database owned by the user.
+
+```ini
+[Unit]
+Description=Check LMC-5 memory lifecycle
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lmc5/.venv/bin/lmc5 patrol --db %h/.local/share/lmc5/example.sqlite
+```
+
+Save `lmc5-patrol.timer` in the same directory:
+
+```ini
+[Unit]
+Description=Run LMC-5 patrol daily
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```sh
+systemctl --user daemon-reload
+systemctl --user start lmc5-patrol.service
+journalctl --user -u lmc5-patrol.service -n 20
+systemctl --user enable --now lmc5-patrol.timer
+systemctl --user list-timers lmc5-patrol.timer
+```
+
+The timer runs while the user service manager is active. For unattended operation after logout, configure user lingering or use a system service with a dedicated account.
+
+### PostgreSQL maintenance
+
 For a PostgreSQL deployment, schedule **your application’s entry point** after it can process a known sample. The bundled `python -m extras.pgvector_backend.dream_runner --dry-run` shows the step names on an empty runner. Every step prints `skipped`. The same unconfigured runner also skips every step during a normal invocation.
 
 Connect `consolidate` to your event loader and `hippocampus` to a `NightDream` job with the callbacks your deployment uses. For relation building it needs neighbor lookup and relation writers. Inspect the result of `run(dry_run=True)` for `would_run` on required steps, then perform a sample run, check for `ok` on those steps and verify the database effects. An all-skipped run can report overall `ok`. Cron or a systemd timer should launch the verified application with the same environment and interpreter.
 
-夜间任务全是 `skipped` 表示还没有接线。用一组已知相关的样例检查“读入事件 → 生成候选 → 写入关系”，确认结果后再启用定时任务。关系核验 SQL 和自动化边界见下面两份说明。[Y relations](Y_RELATIONS.md) · [Automation boundaries](AUTOMATION_BOUNDARIES.md)
+Schedule M-axis decay, deduplication and stopword learning separately if your application uses them. DreamRunner has no steps for those jobs. [Y relations](Y_RELATIONS.md) · [Automation boundaries](AUTOMATION_BOUNDARIES.md)

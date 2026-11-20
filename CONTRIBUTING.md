@@ -15,7 +15,7 @@ clever.
 ## Design Rules
 
 - Keep the default implementation offline and zero-dependency.
-- Never add network calls to the core package.
+- Require explicit opt-in for external calls. Document the recipient, transmitted fields and failure behavior, as in [JEV reranking](docs/JEV.md).
 - Never add examples with real tokens, DSNs, cookies, or credentials.
 - Patrol checks must remain read-only unless a separate audited mutation path is added.
 - Experience signals must not override verified facts.
@@ -25,7 +25,7 @@ clever.
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+python -m pip install -e '.[dev]'
 PYTHONPATH=src python3 -m pytest tests
 ```
 

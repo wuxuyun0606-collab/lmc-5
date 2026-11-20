@@ -98,34 +98,13 @@ with a `--resume` flag pointing to the same session id, after writing
 a `boot_context.json` that the next session reads as additional
 system context.
 
-A minimal sketch:
+To retrieve evidence for the next session, run the SQLite CLI against the agent’s persistent store. For example, from the [deployment walkthrough](DEPLOYMENT.md):
 
-```bash
-#!/bin/bash
-# forge.sh — VPS forge entry point
-set -euo pipefail
-
-SESSION_NAME="${1:-agent}"
-WORKDIR="/opt/lmc5-agent"
-BOOT_CONTEXT="$WORKDIR/boot_context.json"
-
-# 1. write boot context from durable memory
-python -m lmc5 boot-context --out "$BOOT_CONTEXT"
-
-# 2. kill the old session (tmux pane)
-tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
-
-# 3. start the new session with --resume + boot context injection
-tmux new-session -d -s "$SESSION_NAME" \
-  "claude-agent --resume --context-file '$BOOT_CONTEXT'"
-
-# 4. acknowledge (out-of-band, e.g. Telegram bot API directly)
-python -m lmc5 notify "Session forged at $(date -Is)"
+```sh
+lmc5 surface --db "$HOME/.local/share/lmc5/example.sqlite" rollback
 ```
 
-The actual implementation in the reference deployment is a few hundred
-lines and handles edge cases (Telegram channel reattachment, hooks
-restart, session log archival). The shape above is the minimum.
+The host selects and formats the retrieved records with the pending work, persists that context, then starts or resumes the session. Session shutdown, channel reattachment and notifications belong to the host. Verify the replacement session has loaded the handoff before retiring its predecessor.
 
 ### Forge frequency
 

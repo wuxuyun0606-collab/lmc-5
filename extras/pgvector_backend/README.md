@@ -2,7 +2,15 @@
 
 Use this backend when your agent already uses PostgreSQL or needs an approximate vector index. It ships in the source checkout as a set of Python modules. The installed `lmc5` command always opens SQLite.
 
-下面三步可以在空的测试库里验证关键词召回，全程不用模型密钥。先跑通这一条，再接向量、hook 或夜间任务。以下命令从仓库根目录执行。
+Run the three steps below from the checkout root to check keyword recall in a fresh test database. This path requires no model credentials.
+
+## Alpha status
+
+- The walkthrough checks schema creation and a curated full-text round trip on your PostgreSQL server.
+- CI runs Python tests and loopback AML tests with synthetic providers. Live PostgreSQL, provider accuracy and throughput require separate checks.
+- The prompt hook wires text, graph and emotion channels. The host supplies model configuration, scheduled jobs and their database callbacks.
+- A NightDream proposer must raise on failure. An empty list means processing succeeded with zero candidates.
+- Handle `NightDreamWriteError` as a failed batch. Advance the host’s input cursor only after successful writes and make the writer idempotent so retries can safely revisit a chunk.
 
 ## 1. Prepare a database
 

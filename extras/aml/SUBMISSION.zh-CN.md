@@ -1,4 +1,6 @@
-# AML 报名填写说明
+# AML 历史报名说明
+
+以下保留 2026 年 10 月 16 日报名表的措辞。代码 Full 的后续对账记录及文本复测的公开状态见[版本对照表](README.md#version-and-source-correspondence)。
 
 系统名称：LMC-5（五维活体记忆坐标系统）
 
@@ -6,7 +8,7 @@
 
 公开仓库：<https://github.com/wuxuyun0606-collab/lmc-5>
 
-参赛源码：<https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1/extras/aml>
+报名快照源码：<https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1/extras/aml>
 
 Add、Search 与健康检查地址填写实际考场部署地址；认证选择
 `Authorization: Bearer`，Key 填记忆服务访问密钥，不填 JEV 或 embedding 密钥。
