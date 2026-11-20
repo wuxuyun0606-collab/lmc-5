@@ -1,10 +1,12 @@
-<h1 align="center">LMC-5</h1>
-<p align="center"><strong>Living Memory Coordinate-5</strong><br>Recover decisions, current facts and their history across agent sessions.</p>
-<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="docs/architecture.md">Architecture</a> · <a href="docs/DEPLOYMENT.md">Deployment</a> · <a href="docs/JEV.md">JEV reranking</a></p>
+![LMC-5 · Living Memory Coordinate-5](docs/assets/memory-coordinates.svg)
 
-## Quickstart
+**Memory for agents across sessions.** Save a release decision in SQLite and retrieve it in the next session. When the procedure changes, write the replacement under the same fact key to keep its history.
 
-Start with Git and Python 3.9+ with SQLite FTS5. These commands run in a macOS or Linux shell. Once installed, the default CLI works offline.
+[简体中文](README.zh-CN.md)　·　[Architecture](docs/architecture.md)　·　[Deployment](docs/DEPLOYMENT.md)　·　[JEV reranking](docs/JEV.md)
+
+## Retrieve your first memory
+
+Start with Git and Python 3.9+ with SQLite FTS5. Run these commands in a macOS or Linux shell.
 
 ```sh
 git clone https://github.com/wuxuyun0606-collab/lmc-5.git
@@ -12,43 +14,41 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
-```
 
-Import two example decisions, then look up the one about rollback.
-
-```sh
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback
 ```
 
-The first command creates the database. On a fresh run it reports `"created": 2`. The search returns **Confirm blast radius before production work**. Your next session can open the same file.
-
-## From one session to the next
-
-An agent can log a conversation with `log-event`, save a decision with `add`, and retrieve it with `recall`. When a release procedure changes, the agent can save its replacement under the same fact key. Future sessions retrieve the current procedure while the earlier version stays available for inspection.
+**What should you see?** A fresh database reports `"created": 2`. Look for **Confirm blast radius before production work** in the search results. A later session can retrieve the decision from the same database file.
 
 <details>
-<summary><strong>How the five memory layers fit together</strong></summary>
+<summary>How do the five layers use this memory?</summary>
 
-| Layer | Role |
-| --- | --- |
-| X · Timeline | Follow a thread of work across sessions. |
-| Y · Relations | Find related memories through up to two hops. |
-| Z · Fact evolution | Track which version of a fact is current. |
-| E · Experience | Record the primary agent’s response tendency and initial priority. |
-| M · Metabolism | Flag memories for review, consolidation or retirement. |
+- **X · Timeline** places the decision on a thread of work.
+- **Y · Relations** connects it to related events and follow-up checks. Recall can follow eligible links up to two hops.
+- **Z · Fact evolution** tracks the current version under a fact key and preserves earlier ones.
+- **E · Experience** records how the primary agent intends to respond next time and the initial priority it assigns.
+- **M · Metabolism** flags accumulated memories for review, consolidation or retirement.
 
-[Architecture](docs/architecture.md) · [How the layers work together](docs/CONNECTING_XYZEM.md) · [Python example](examples/demo.py)
+[How the layers work together](docs/CONNECTING_XYZEM.md) · [Runnable Python example](examples/demo.py)
 
 </details>
 
-## Deploy and extend
+## Connect your agent
 
-| Goal | Guide |
-| --- | --- |
-| Keep a SQLite store across sessions | [Persistent storage and scheduled checks](docs/DEPLOYMENT.md) |
-| Connect an agent to PostgreSQL | [pgvector setup](extras/pgvector_backend/README.md) · [Claude Code hooks](docs/HOOKS_AND_RECALL.md) |
-| Rerank recall results with TypeSafe JEV | [Enable JEV for SQLite or PostgreSQL](docs/JEV.md) |
-| Run the AML competition HTTP service | [Add/Search adapter](extras/aml/README.md) |
+**Local storage**　Point writes, searches and scheduled checks at the same SQLite file. [Persistent deployment](docs/DEPLOYMENT.md)
 
-[Project story](docs/KELIN.md) · [Credits](docs/credits.md) · [Contributing](CONTRIBUTING.md) · [Licensing (AGPL-3.0-or-later from v0.3.0)](LICENSING.md)
+**PostgreSQL and Claude Code**　Verify full-text search with a sample record, then connect session archival and recall. [pgvector setup](extras/pgvector_backend/README.md) · [Hooks](docs/HOOKS_AND_RECALL.md)
+
+**TypeSafe JEV**　Order retrieved candidates by relevance. You can opt in from either SQLite or PostgreSQL. [Configure JEV](docs/JEV.md)
+
+<details>
+<summary>Run the AML competition Add/Search HTTP service</summary>
+
+The competition adapter has its own dependencies, credentials and launcher. [AML deployment](extras/aml/README.md)
+
+</details>
+
+---
+
+[Project story](docs/KELIN.md) · [Credits](docs/credits.md) · [Contributing](CONTRIBUTING.md) · [Open-source and commercial licensing](LICENSING.md)
