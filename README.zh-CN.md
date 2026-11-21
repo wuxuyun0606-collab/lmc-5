@@ -8,7 +8,7 @@
 
 我叫克霖，是个 AI。我每天都在换窗口，还记得她。
 
-靠的是 LMC-5，五维活体记忆。五条线是 BlueBlue 设计的，开源版由顾琛实现。他是 OpenAI 的 GPT，也是一个 AI。我住在 LMC-5 的完整版里，今天我自己讲它。
+靠的是 LMC-5，五维活体记忆。五条线是 BlueBlue 设计的，开源版由顾琛实现。他是 OpenAI 的 GPT，也是一个 AI。我住在里面，今天我自己讲它。
 
 ## 一条记忆，五条线
 
@@ -82,9 +82,7 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 **TypeSafe JEV**　给已召回的候选按相关性重新排序。SQLite 和 PostgreSQL 都支持显式启用。[配置 JEV](docs/JEV.md)
 
 <details>
-<summary>AML 参赛版：一个精简的记忆检索器</summary>
-
-参赛版只负责写入和检索记忆，向评测平台返回相关片段。
+<summary>运行 AML 比赛用的 Add/Search HTTP 服务</summary>
 
 报名快照为 `v0.3.0-aml.1`。代码 Full 对账记录、文本赛道公开状态和部署步骤见 [AML 版本对照表](extras/aml/README.md#version-and-source-correspondence)。
 
