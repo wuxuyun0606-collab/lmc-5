@@ -2,7 +2,7 @@
 
 ![LMC-5 · Living Memory Coordinate-5](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition edition](https://github.com/wuxuyun0606-collab/lmc-5/tree/fix/aml-serving-recovery)　·　[Documentation](docs/README.md)
+[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition archive](extras/aml/README.md)　·　[Documentation](docs/README.md)
 
 You’ve been talking to an agent for a long time. You open a new window, and it no longer knows who you are.
 
@@ -36,6 +36,8 @@ PYTHONPATH=src python3 examples/two_hop_graph.py
 
 [Runnable example](examples/two_hop_graph.py) · [Relation types and recall rules](docs/Y_RELATIONS.md) · [How the five coordinates shape writes, overnight updates and recall](docs/CONNECTING_XYZEM.md)
 
+In a small SQLite replay, shared fact keys kept old values out of all four post-update searches. Two-hop expansion recovered both indirect targets and added three unrelated records across three searches. [Cases, results and reproduction](eval/README.md) · [AML competition results by track and version](extras/aml/README.md#official-cycle-2-results)
+
 ## Retrieve your first memory
 
 Start with Git and Python 3.9+ with SQLite FTS5. Run these commands in a macOS or Linux shell.
@@ -46,6 +48,7 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
+lmc5 --version
 
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback

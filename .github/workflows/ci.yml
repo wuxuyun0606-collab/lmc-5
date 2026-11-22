@@ -20,6 +20,39 @@ jobs:
       - name: Test
         run: PYTHONPATH=src python -m pytest tests
 
+  wheel:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build distributions and check metadata
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Verify the installed wheel outside the source tree
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m venv wheel-env
+          . wheel-env/bin/activate
+          python -m pip install --no-index "$GITHUB_WORKSPACE"/dist/*.whl
+          expected=$(python -Ic 'from importlib.metadata import version; import lmc5; assert lmc5.__version__ == version("lmc5"); print("lmc5", lmc5.__version__)')
+          test "$(lmc5 --version)" = "$expected"
+          test "$(python -Im lmc5 --version)" = "$expected"
+          python -Im lmc5 add --title "Wheel probe" --content "Remember cobalt." > added.json
+          lmc5 recall cobalt > hits.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          added = json.loads(Path("added.json").read_text())
+          hits = json.loads(Path("hits.json").read_text())
+          assert hits and hits[0]["id"] == added["id"]
+          assert hits[0]["content"] == "Remember cobalt."
+          PY
+
   aml-serving:
     runs-on: ubuntu-22.04
     strategy:
@@ -31,7 +64,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install optional serving dependencies
-        run: python -m pip install -e .[dev] -r extras/aml/requirements.txt
+        run: |
+          python -m pip install --require-hashes -r extras/aml/requirements.lock
+          python -m pip install -e .[dev]
+          python -m pip check
       - name: Test AML adapter against local fake providers
         run: PYTHONPATH=src python -m pytest extras/aml/tests -q
 

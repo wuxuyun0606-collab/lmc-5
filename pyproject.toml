@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lmc5"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Living Memory Coordinate-5: five-axis memory architecture for long-running LLM agents. Minimal SQLite + production PostgreSQL/pgvector reference impls."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -31,6 +31,9 @@ jev = ["requests>=2.32,<3"]
 
 [project.scripts]
 lmc5 = "lmc5.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "lmc5.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

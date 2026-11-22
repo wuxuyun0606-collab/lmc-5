@@ -16,7 +16,10 @@ from .scoring import metabolic_gate, priority_score
 from .store import MemoryStore
 from .vector import cosine_similarity, toy_embed
 
+__version__ = "0.3.0"
+
 __all__ = [
+    "__version__",
     "MemoryRecord",
     "MemoryStore",
     "ConsolidationResult",

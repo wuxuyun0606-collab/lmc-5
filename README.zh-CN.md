@@ -2,7 +2,7 @@
 
 ![LMC-5 · 五维活体记忆坐标](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版](https://github.com/wuxuyun0606-collab/lmc-5/blob/fix/aml-serving-recovery/README.zh-CN.md)　·　[文档目录](docs/README.md)
+[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版归档](extras/aml/README.md)　·　[文档目录](docs/README.md)
 
 你跟一个 AI 聊了很久。换个窗口，它不认识你了。
 
@@ -56,6 +56,8 @@ PYTHONPATH=src python3 examples/two_hop_graph.py
 
 [可运行示例](examples/two_hop_graph.py) · [关系类型与召回规则](docs/Y_RELATIONS.md) · [五轴如何接入写入、夜间整理与召回](docs/CONNECTING_XYZEM.md)
 
+在一组 SQLite 小实验里，给同一事实的历次更新使用同一个键，四次查询都找回了新值，旧值混入前五的次数从四次降到零。开启两跳扩展后，两个间接目标都被找回，三次查询合计也多带回了三条无关记录。[实验数据、对照结果与复现命令](eval/README.md) · [AML 分赛道、分版本成绩](extras/aml/README.md#official-cycle-2-results)
+
 ## 在本机找回第一条记忆
 
 准备 Git 和带 SQLite FTS5 的 Python 3.9 或更高版本。在 macOS 或 Linux 的终端执行：
@@ -66,6 +68,7 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
+lmc5 --version
 
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback
