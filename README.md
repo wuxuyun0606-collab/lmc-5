@@ -1,16 +1,22 @@
-# LMC-5
+# LMC-5 · Living Memory Coordinate-5
 
-[简体中文](README.zh-CN.md) · [Two-hop recall](#follow-a-rollback-query-two-hops) · [Quickstart](#retrieve-your-first-memory) · [Evaluation](#what-you-can-reproduce) · [Documentation](docs/README.md)
+LMC-5 gives AI agents long-term memory across conversations. Open a new chat and your agent can pick up where you left off.
 
-Last month a release nearly failed, and Alice called the rollback. Today you ask your agent, “Who should sign off this time?” Vector search can surface the old incident review. The review still explains why caution matters. But Sam owns releases now. A useful memory has to preserve both facts.
+[简体中文](README.zh-CN.md) · [Quickstart](#retrieve-your-first-memory) · [Kelin’s account (中文)](README.zh-CN.md#克霖的部署自述) · [Two-hop recall](#follow-a-rollback-query-two-hops) · [Evaluation](#what-you-can-reproduce) · [Documentation](docs/README.md)
 
-**LMC-5 gives a memory five coordinates across its lifetime.** When the agent records the decision, it places it on that release’s timeline. Overnight it can acquire links to the checklist and the incident review. At the next recall, those links bring back the lesson, while the fact history tells the agent who owns the decision today. [Write, overnight consolidation and recall](docs/CONNECTING_XYZEM.md)
+You used to drink Americanos. Last week you switched to lattes. The next time coffee comes up, your agent should remember the latte. But if you ask what you drank when you first met, the Americano still matters. LMC-5 keeps the earlier record when it marks the new preference as current.
 
-**One long-running personal deployment.** On 11 November 2026, Kelin reported **8,337 memories and 13,456 links** drawn from roughly **110,000 raw dialogue records**. Consolidation ran shortly after 5 a.m. each day. On one morning it examined **68 candidate pairs** and added **two links**. The underlying records from this private deployment are unavailable for independent public verification. [Kelin’s deployment account, in Chinese](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
+Each memory has **five coordinates**. Which episode does it belong to (X)? Which earlier memories connect to it (Y)? Which facts still hold (Z)? When an interaction changes how the agent wants to respond, the agent writes that experience in its own words (E). Overnight consolidation revisits these records and weighs which memories to reinforce or let fade (M).
 
-**The AML competition edition** ran synchronous ingestion and retrieval. It omitted the cross-session timeline (X), persistent relation graph (Y) and overnight consolidation. Its scores describe that retriever. [Competition scope and results](extras/aml/README.md)
+**Five-coordinate design by BlueBlue · Open-source implementation by Gu Chen (顾琛) · Deployment account by Kelin (克霖)**
+
+Kelin’s private deployment starts consolidating memories shortly after 5 a.m. each day. On 11 November 2026, Kelin reported **8,337 memories and 13,456 links**. The underlying records are private, so readers cannot independently verify those counts. [Kelin’s account at the time, in Chinese](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
+
+**AML Cycle 2.** LMC-5 AML.2 ranked **9th of 89** in the open-source Textual Memory track with a score of **59.97**. The competition entry ran synchronous ingestion and retrieval. The cross-session timeline, relation graph and overnight consolidation belong to the full system. [Official results](https://agentmemoryleaderboard.ai/results/cycle-2/) · [Competition edition](extras/aml/README.md)
 
 ## The life of a memory
+
+Consider a release that nearly failed. Alice called the rollback. Sam owns releases now. The team needs to know who can sign off today and why Alice made that call last time.
 
 | Moment | What the coordinate records | What can go wrong without it |
 | --- | --- | --- |
@@ -25,8 +31,6 @@ Think of the five coordinates as clinicians consulting on one case. When Y surfa
 **A fact needs a period of validity. An experience needs an author.** The agent that lived an experience writes the entry and chooses its initial priority. If its understanding changes, it writes a successor. An overnight job can propose a revision while preserving the original account. The M patrol flags candidates for review. As the architecture guide puts it, “Automatic memory mutation is where cute systems go to become haunted filing cabinets.” [Experience authorship](docs/E_EXPERIENCE.md#authorship-and-initial-order) · [Metabolism and protected memories](docs/M_METABOLISM.md) · [Architecture](docs/architecture.md)
 
 ![LMC-5 · Living Memory Coordinate-5](docs/assets/memory-coordinates.svg)
-
-BlueBlue designed the five coordinates. Gu Chen (顾琛) implemented the open-source reference. Kelin wrote the [first-person account](README.zh-CN.md#她还在睡记忆已经在整理了).
 
 ## Follow a rollback query two hops
 
