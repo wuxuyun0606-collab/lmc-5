@@ -8,6 +8,15 @@ PYTHONPATH=src python3 eval/replay.py
 
 The runner prints a JSON row per query and configuration. Each configuration replays the same synthetic [cases](cases.json) in a fresh in-memory database with a five-record return limit. It uses the public SQLite write and recall APIs and needs no model, API key or network connection.
 
+## Quickstart seed replay
+
+The runner also loads the two published [quickstart records](../examples/seed.jsonl) and appends a synthetic revision to the production policy. It searches for `rollback` and checks the untouched `checkpoint` note as a control. Both configurations use the same texts and a five-record limit.
+
+| One policy update | Revised policy found | Old policy also returned | Untouched checkpoint found |
+| --- | ---: | ---: | ---: |
+| Ordinary notes | 1/1 | 1/1 | 1/1 |
+| Shared fact keys | 1/1 | 0/1 | 1/1 |
+
 ## Z · Which fact is current?
 
 Three subjects change over time: a drink preference, a release owner who changes twice, and a commute. After each change the runner immediately retrieves the subject. One pass writes ordinary notes; the other gives successive versions of a subject the same fact key. Wording, write order and queries are identical. The query occurs in the title in both passes.
@@ -30,4 +39,4 @@ The graph has eight records. Two queries need two hops to reach the labeled targ
 
 The rollback query also reached an irrelevant inventory record through a valid project edge. The direct query already had its answer and gained two unnecessary neighbors. A connection can be valid even when it adds no evidence for the question.
 
-These counts describe seven hand-written checkpoints and queries. The AML leaderboard covers a different retrieval system. To measure generalization, the next experiment should fix a public dataset revision and sample, label current and historical questions separately, and compare lexical, vector and hybrid retrieval at the same return budget.
+These counts describe the quickstart replay and seven hand-written checkpoints and queries. The AML leaderboard covers a different retrieval system. To measure generalization, the next experiment should fix a public dataset revision and sample, label current and historical questions separately, and compare lexical, vector and hybrid retrieval at the same return budget.

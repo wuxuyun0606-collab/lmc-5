@@ -38,6 +38,9 @@ jobs:
           python -m venv wheel-env
           . wheel-env/bin/activate
           python -m pip install --no-index "$GITHUB_WORKSPACE"/dist/*.whl
+          expected=$(python -Ic 'from importlib.metadata import version; import lmc5; assert lmc5.__version__ == version("lmc5"); print("lmc5", lmc5.__version__)')
+          test "$(lmc5 --version)" = "$expected"
+          test "$(python -Im lmc5 --version)" = "$expected"
           python -Im lmc5 add --title "Wheel probe" --content "Remember cobalt." > added.json
           lmc5 recall cobalt > hits.json
           python - <<'PY'

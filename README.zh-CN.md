@@ -2,7 +2,7 @@
 
 ![LMC-5 · 五维活体记忆坐标](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版](https://github.com/wuxuyun0606-collab/lmc-5/blob/fix/aml-serving-recovery/README.zh-CN.md)　·　[文档目录](docs/README.md)
+[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版归档](extras/aml/README.md)　·　[文档目录](docs/README.md)
 
 你跟一个 AI 聊了很久。换个窗口，它不认识你了。
 
@@ -68,6 +68,7 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
+lmc5 --version
 
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback

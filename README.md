@@ -2,7 +2,7 @@
 
 ![LMC-5 · Living Memory Coordinate-5](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition edition](https://github.com/wuxuyun0606-collab/lmc-5/tree/fix/aml-serving-recovery)　·　[Documentation](docs/README.md)
+[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition archive](extras/aml/README.md)　·　[Documentation](docs/README.md)
 
 You’ve been talking to an agent for a long time. You open a new window, and it no longer knows who you are.
 
@@ -48,6 +48,7 @@ cd lmc-5
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
+lmc5 --version
 
 lmc5 import-jsonl --db demo.sqlite examples/seed.jsonl
 lmc5 recall --db demo.sqlite rollback

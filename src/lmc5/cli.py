@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .atom_quality import build_atom_quality_report
 from .consolidation import consolidate_events
 from .fact_evolution import run_z_audit
@@ -412,6 +413,7 @@ def cmd_export(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="LMC-5 reference memory CLI")
+    parser.add_argument("--version", action="version", version=f"lmc5 {__version__}")
     parent = argparse.ArgumentParser(add_help=False)
     parent.add_argument("--db", default="lmc5.sqlite", help="SQLite database path")
     sub = parser.add_subparsers(dest="command", required=True)
