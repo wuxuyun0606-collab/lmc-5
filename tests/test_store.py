@@ -555,3 +555,23 @@ def test_stats_reports_counts_and_vector_coverage(tmp_path):
     assert stats["vector_owner_counts"] == {"event": 1, "memory": 1}
     assert stats["memory_vector_coverage"] == {"indexed": 1, "total": 1, "ratio": 1.0}
     assert stats["event_vector_coverage"] == {"indexed": 1, "total": 1, "ratio": 1.0}
+
+
+def test_reassertion_creates_new_fact_version(tmp_path):
+    with MemoryStore(tmp_path / "facts.db") as store:
+        store.init()
+        def assign(person):
+            return store.add_memory(fact_key="owner", title="Owner", content=person)
+        first, _ = assign("Alice")
+        middle, _ = assign("Sam")
+        last, created = assign("Alice")
+        assert created and last.id != first.id
+        assert not store.get_memory(first.id).active_fact
+        assert not store.get_memory(middle.id).active_fact
+        assert last.active_fact and assign("Alice") == (last, False)
+        backup = store.export_jsonl()
+    with MemoryStore(tmp_path / "restore.db") as restored:
+        restored.init()
+        assert restored.import_jsonl(backup) == (3, 0)
+        assert restored.import_jsonl(backup) == (0, 3)
+        assert [m.content for m in restored.list_recent() if m.active_fact] == ["Alice"]

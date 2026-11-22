@@ -266,3 +266,44 @@ def test_public_startup_clears_harness_and_restarts_with_fresh_run(tmp_path):
                 proc.kill()
                 proc.communicate()
     assert runs[0] != runs[1]
+
+
+def test_event_occurrences_survive_retries_and_repeated_text(serving):
+    from concurrent.futures import ThreadPoolExecutor
+    request = serving[0]
+    a = add_body(2)
+    for msg in a['messages']:
+        msg['content'] = 'same workshop note'
+    a['messages'][0]['timestamp'] += 123
+    b = dict(a, request_id='second-add', session_id='second-session')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = list(pool.map(lambda _: request('/v1/memories/add', a)[0], range(2)))
+    assert statuses == [200, 200]
+    assert request('/v1/memories/add', b)[0] == 200
+    _, _, reply = request('/v1/memories/search', {'user_id': a['user_id'], 'query': 'workshop', 'top_k': 10})
+    assert len(reply['data']) == 4
+    assert sum(row['created_at'].endswith('.123Z') for row in reply['data']) == 2
+
+def test_failed_receipt_rolls_back_entire_add(serving):
+    import sqlite3
+
+    request, _, env = serving[:3]
+    seed = add_body(1)
+    assert request('/v1/memories/add', seed)[0] == 200
+    state = Path(env['AML_STATE_DIR']) / 'data' / 'instance'
+    receipt_path = state / 'idempotency.sqlite'
+    store_path, = (state / 'db').glob('*.sqlite')
+    body = dict(add_body(3), request_id='atomic-batch')
+    with sqlite3.connect(receipt_path) as receipts:
+        receipts.execute("CREATE TRIGGER reject_receipt BEFORE INSERT ON add_requests "
+                         "BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END")
+    assert request('/v1/memories/add', body)[0] >= 500
+    with sqlite3.connect(store_path) as records:
+        assert records.execute('SELECT count(*) FROM memories').fetchone()[0] == 1
+    with sqlite3.connect(receipt_path) as receipts:
+        assert receipts.execute('SELECT count(*) FROM add_requests').fetchone()[0] == 1
+        receipts.execute('DROP TRIGGER reject_receipt')
+    assert request('/v1/memories/add', body)[0] == 200
+    assert request('/v1/memories/add', body)[0] == 200
+    with sqlite3.connect(store_path) as records:
+        assert records.execute('SELECT count(*) FROM memories').fetchone()[0] == 4

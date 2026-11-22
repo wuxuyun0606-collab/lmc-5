@@ -596,7 +596,7 @@ def ts_label(ms) -> tuple[str, str]:
     if ms is None:
         return "", ""
     dt = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
-    return dt.strftime("%Y-%m-%d %H:%M (%A)"), dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.strftime("%Y-%m-%d %H:%M (%A)"), dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def embed(texts: list[str]) -> list[list[float]]:
@@ -644,6 +644,17 @@ def embed(texts: list[str]) -> list[list[float]]:
     return out
 
 
+def lookup_add(conn, request_id, payload_hash):
+    row = conn.execute(
+        "SELECT payload_hash, response FROM add_requests WHERE request_id=?", (request_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    if row[0] != payload_hash:
+        return 409, {"detail": {"reason": "request_id reused with different payload"}}
+    return 200, json.loads(row[1])
+
+
 def do_add(body: dict) -> tuple[int, dict]:
     for field in ("request_id", "messages", "user_id", "session_id"):
         if field not in body:
@@ -655,11 +666,9 @@ def do_add(body: dict) -> tuple[int, dict]:
     payload_hash = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     conn = idem_conn()
     try:
-        row = conn.execute("SELECT payload_hash, response FROM add_requests WHERE request_id=?", (rid,)).fetchone()
-        if row:
-            if row[0] != payload_hash:
-                return 409, {"detail": {"reason": "request_id reused with different payload"}}
-            return 200, json.loads(row[1])
+        cached = lookup_add(conn, rid, payload_hash)
+        if cached is not None:
+            return cached
     finally:
         conn.close()
 
@@ -681,31 +690,29 @@ def do_add(body: dict) -> tuple[int, dict]:
         vectors = embed([c for _, c, _ in prepared])
         t_embed = time.perf_counter() - te
 
-    with user_lock(uid):
-        store = open_store(uid)
-        try:
+    resp = {"success": True, "request_id": rid, "user_id": uid, "session_id": sid}
+    with user_lock(uid), open_store(uid) as store:
+        # Keep the existing global request-id contract and legacy receipts. SQLite's
+        # rollback journal commits both attached files in the same transaction.
+        store.conn.execute("ATTACH DATABASE ? AS receipts", (str(IDEM_PATH),))
+        with store.write_transaction():
+            cached = lookup_add(store.conn, rid, payload_hash)
+            if cached is not None:
+                return cached
             for i, (title, content, iso) in enumerate(prepared):
-                record, _created = store.add_memory(
+                record, _ = store.add_memory(
                     title=title, content=content, thread="aml", category="raw_message",
-                    source=f"{iso}|{sid}",
+                    source=f"{iso}|{sid}", occurrence_key=f"aml:{payload_hash}:{i}",
                 )
                 if vectors is not None:
                     store.upsert_vector(
                         owner_type="memory", owner_id=int(record.id), vector=vectors[i],
                         provider=EMBED_PROVIDER, model=EMBED_MODEL,
                     )
-            # read-back check: last written row must be retrievable now
-            store.get_memory(int(record.id))
-        finally:
-            store.close()
-
-    resp = {"success": True, "request_id": rid, "user_id": uid, "session_id": sid}
-    conn = idem_conn()
-    try:
-        conn.execute("INSERT OR REPLACE INTO add_requests VALUES (?,?,?)", (rid, payload_hash, json.dumps(resp)))
-        conn.commit()
-    finally:
-        conn.close()
+            store.conn.execute(
+                "INSERT INTO receipts.add_requests VALUES (?, ?, ?)",
+                (rid, payload_hash, json.dumps(resp)),
+            )
     log({"op": "add", "request_id": rid, "n": len(prepared), "sec": round(time.perf_counter() - t0, 4),
          "embed_sec": round(t_embed, 4)})
     return 200, resp
@@ -801,7 +808,7 @@ def do_search(body: dict) -> tuple[int, dict]:
         dated = [x for x in data if x.get("created_at")]
         undated = [x for x in data if not x.get("created_at")]
         newest_first = bool(ASOF_RE.search(query))
-        dated.sort(key=lambda x: x["created_at"], reverse=newest_first)  # ISO strings sort correctly
+        dated.sort(key=lambda x: x["created_at"].rstrip("Z"), reverse=newest_first)  # ISO strings sort correctly
         data = dated + undated
         order_mode = "asof_newest_first" if newest_first else "chrono"
     ab_stats = None

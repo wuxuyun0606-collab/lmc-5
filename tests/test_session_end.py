@@ -20,9 +20,29 @@ def test_archives_native_and_flat_text_turns(tmp_path):
     cursor = conn.cursor.return_value.__enter__.return_value
     cursor.rowcount = 1
     assert archive_session_jsonl(conn, "demo", path) == 3
-    rows = [call.args[1] for call in cursor.execute.call_args_list]
+    rows = [call.args[1] for call in cursor.execute.call_args_list
+            if call.args[0].startswith("INSERT")]
     assert [row[:3] for row in rows] == [
         ("demo", "user", "first turn"), ("demo", "assistant", "reply"), ("demo", "user", "flat turn")
     ]
     assert json.loads(rows[1][3])["message"] == {"role": "assistant", "model": "demo"}
     conn.commit.assert_called_once()
+
+    assert len({row[4] for row in rows}) == 3
+
+
+def test_archive_preserves_occurrence_and_timestamp(tmp_path):
+    path = tmp_path / "turns.jsonl"
+    first = {"type": "user", "message": {"content": "same"}, "timestamp": "2025-01-01T10:00:00Z"}
+    turns = [first, first, dict(first, uuid="third", timestamp=0)]
+    path.write_text("\n".join(json.dumps(turn) for turn in turns))
+    def rows():
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.rowcount = 1
+        archive_session_jsonl(conn, "session", path)
+        return [c.args[1] for c in cur.execute.call_args_list if c.args[0].startswith("INSERT")]
+    result = rows()
+    assert result == rows()
+    assert len({r[4] for r in result}) == 3
+    assert [r[5].year for r in result] == [2025, 2025, 1970]
