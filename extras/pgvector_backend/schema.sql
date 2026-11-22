@@ -213,8 +213,15 @@ CREATE TABLE IF NOT EXISTS lmc5_raw_events (
     metadata        JSONB DEFAULT '{}'::jsonb,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     content_tsv     tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED,
-    UNIQUE (session_id, role, content)
+    event_key       TEXT,
+    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Existing installations: run migrations/20261122_raw_event_identity.sql first.
+CREATE UNIQUE INDEX IF NOT EXISTS lmc5_raw_events_session_event_key
+    ON lmc5_raw_events(session_id, event_key);
+CREATE INDEX IF NOT EXISTS lmc5_raw_events_unkeyed_session
+    ON lmc5_raw_events(session_id) WHERE event_key IS NULL;
 
 CREATE INDEX IF NOT EXISTS lmc5_raw_events_tsv_idx
     ON lmc5_raw_events USING GIN (content_tsv);

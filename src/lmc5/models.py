@@ -128,9 +128,11 @@ class MemoryRecord:
     hit_count: int = 0
     last_hit_at: str | None = None
     content_hash: str | None = None
+    occurrence_key: str | None = None
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
+            **({"occurrence_key": self.occurrence_key} if self.occurrence_key is not None else {}),
             "id": self.id,
             "title": self.title,
             "content": self.content,

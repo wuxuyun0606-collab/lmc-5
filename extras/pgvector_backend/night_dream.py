@@ -228,7 +228,7 @@ def normalize_candidate(raw: dict[str, Any]) -> Optional[Candidate]:
         return None
     title = re.sub(r"\s+", " ", str(raw.get("title") or "")).strip()[:80]
     content = re.sub(r"\s+", " ", str(raw.get("content") or "")).strip()
-    evidence = re.sub(r"\s+", " ", str(raw.get("evidence") or "")).strip()
+    evidence = str(raw.get("evidence") or "").strip()
     if not title or len(content) < 30 or not evidence:
         return None
     try:
@@ -237,11 +237,15 @@ def normalize_candidate(raw: dict[str, Any]) -> Optional[Candidate]:
         importance = 0
     importance = max(0, min(10, importance))
     chunk_ids: list[int] = []
-    for x in raw.get("source_chunk_ids") or []:
-        try:
-            chunk_ids.append(int(x))
-        except Exception:
-            pass
+    raw_ids = raw.get("source_chunk_ids")
+    if isinstance(raw_ids, list):
+        for value in raw_ids:
+            numeric_string = isinstance(value, str) and value.isascii() and value.isdecimal()
+            if type(value) is int or numeric_string:
+                chunk_ids.append(int(value))
+            else:
+                chunk_ids.clear()
+                break
     hints: list[str] = []
     for x in raw.get("relation_hints") or []:
         s = str(x).strip()
@@ -258,7 +262,7 @@ def normalize_candidate(raw: dict[str, Any]) -> Optional[Candidate]:
         content=content[:1500],
         importance=importance,
         risk=risk,
-        evidence=evidence[:180],
+        evidence=evidence,
         source_chunk_ids=sorted(set(chunk_ids)),
         relation_hints=hints[:6],
         thread_hint=str(raw.get("thread_hint") or "其他线").strip() or "其他线",
@@ -369,6 +373,7 @@ class NightDream:
         candidates: list[Candidate],
         *,
         enforce_max_promote: bool = True,
+        source_texts: Optional[dict[int, str]] = None,
     ) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
         """闸门链：阈值 → risk → 必须有 source → 批内去重 → max_promote 截断
 
@@ -388,6 +393,13 @@ class NightDream:
             if not cand.source_chunk_ids:
                 rejected.append((cand, "missing_source"))
                 continue
+            if source_texts is not None:
+                if any(cid not in source_texts for cid in cand.source_chunk_ids):
+                    rejected.append((cand, "unknown_source"))
+                    continue
+                if not any(cand.evidence in source_texts[cid] for cid in cand.source_chunk_ids):
+                    rejected.append((cand, "unmatched_evidence"))
+                    continue
             sig = (cand.type, cand.title)
             if sig in seen:
                 rejected.append((cand, "duplicate_in_batch"))
@@ -477,6 +489,7 @@ class NightDream:
         eligible, rejected = self.gate(
             candidates,
             enforce_max_promote=not apply,
+            source_texts={c.id: c.text for c in chunks if not is_noise(c.text)},
         )
         promoted: list[Candidate] = []
         written_ids: list[int] = []

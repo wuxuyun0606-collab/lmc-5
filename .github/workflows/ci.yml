@@ -27,6 +27,8 @@ jobs:
         python-version: ["3.9", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -34,3 +36,24 @@ jobs:
         run: python -m pip install -e .[dev] -r extras/aml/requirements.txt
       - name: Test AML adapter against local fake providers
         run: PYTHONPATH=src python -m pytest extras/aml/tests -q
+
+  postgres-integrity:
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16
+        env:
+          POSTGRES_DB: lmc5_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest psycopg2-binary
+      - run: PYTHONPATH=src python -m pytest -q tests/test_pg_memory_integrity.py
+        env:
+          LMC5_TEST_PG_DSN: host=127.0.0.1 port=5432 dbname=lmc5_test user=postgres

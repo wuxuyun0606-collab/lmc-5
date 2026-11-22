@@ -65,6 +65,12 @@ The organizer lists these LMC-5 entries in the open-source division. The version
 
 ## Version and source correspondence
 
+The current maintenance fixes preserve individual message occurrences, including identical
+text in different turns, and commit a complete Add batch with its request receipt.
+A retry with the same request ID and payload returns the recorded response.
+Current builds retain millisecond precision in returned event timestamps.
+For the original registration implementation, use the tagged snapshot below.
+
 Maintenance line: **`fix/aml-serving-recovery`**, independent of the full LMC-5
 system on `main`. This competition branch is not a merge candidate for the
 full-system branch. Keep competition fixes and releases on this maintenance line.
@@ -172,8 +178,8 @@ An embedding query is retried once with a 7680-byte UTF-8 head/tail copy only
 after a definitive HTTP 400 input-length rejection. Successful inputs remain
 unchanged. JEV receives a request-only state bounded to 30000 UTF-8 bytes;
 stored text is not rewritten. Lexical queries above 64 terms skip the lexical
-candidate channel. These can affect long-input results. Add retains the original
-behavior; the later text-retake long-Add repair is not included.
+candidate channel. These can affect long-input results. The historical snapshot retains the October Add behavior. The current branch
+adds atomic event writes and does not include the text-retake input truncation.
 
 ## Install and configure (Linux / macOS, Python 3.9+)
 
