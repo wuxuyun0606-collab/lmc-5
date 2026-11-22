@@ -1,5 +1,7 @@
 # SQLite recall experiments
 
+These results come from the core SQLite `MemoryStore` in `replay.py`, with a hand-built graph for the Y experiment. The AML serving edition in `extras/aml/` has no cross-session timeline (X) or stored relation edges (Y) and is outside this evaluation.
+
 Run from the repository root with Python 3.9+ and SQLite FTS5:
 
 ```sh

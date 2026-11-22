@@ -1,5 +1,7 @@
 # LoCoMo evidence retrieval at five turns
 
+These results come from the standalone BM25, vector and RRF baselines in `locomo.py`, which runs independently of LMC-5. The AML serving edition in `extras/aml/` has no cross-session timeline (X) or stored relation edges (Y) and is outside this evaluation.
+
 On twelve questions from six LoCoMo conversations, lexical retrieval and hybrid retrieval found annotated evidence for **2/6 current-state questions and 4/6 historical-event questions**. The vector retriever found evidence for **1/6 and 3/6** respectively. This small paired sample measures evidence retrieval over transcripts. It does not evaluate answer generation, five-axis consolidation or leaderboard performance.
 
 | Question group | Retrieval method | Queries with any evidence in top 5 | Annotated turns found in top 5 |
