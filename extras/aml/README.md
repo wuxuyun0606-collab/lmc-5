@@ -2,8 +2,7 @@
 
 This optional module publishes the LMC-5 team's AML serving implementation.
 It includes the synchronous Add/Search HTTP service, TypeSafe JEV adapter,
-serving bridge, startup profile, and offline acceptance tests. JEV has no local
-billing ledger, price estimate or spending cap. The core `src/lmc5` remains offline and
+serving bridge, startup profile, and offline acceptance tests. The core `src/lmc5` remains offline and
 has no new dependencies. No provider weights, credentials, user memories,
 evaluation datasets, or private run logs are distributed.
 
@@ -31,8 +30,7 @@ account-specific configuration; the startup shell is portable. It does not
 silently replace or restart the live exam service.
 
 `serve_exam.py` sets the competition configuration before `server.py` loads the
-JEV bridge directly. There is no legacy reranker or billing module in this
-startup path. `shell/server.py` alone is a development entry point and can run
+JEV bridge directly. `shell/server.py` alone is a development entry point and can run
 without auth. **Deploy through `start.sh`**.
 
 ## Reranker choice and API ownership
@@ -89,11 +87,6 @@ backend default remains 240. This is not a verified HTTP client-concurrency
 capacity claim. The request body limit is 8,000,000 bytes. A process lock avoids
 starting two serving processes against the same state directory.
 
-The billing modules, price estimates, budget gates and recovery machinery have
-been deleted. There is no replacement accounting component or compatibility
-layer. Provider-reported token counts are optional diagnostics; actual billing
-and spending controls belong to the provider account.
-
 A failed, invalid or uncertain JEV call falls back to RRF for that search. It does
 not create a sticky stop for other searches or future process starts. Missing
 or malformed usage does not invalidate an otherwise valid JEV score. Failed
@@ -102,7 +95,7 @@ calls are not automatically retried, including after restarting the service.
 Operational limits remain: a default 600-second rerank deadline, per-call socket
 watchdogs, concurrency/RPM scheduling, provider `Retry-After`, and a finite
 circuit cooldown after repeated failures. A valid long `Retry-After` is honored
-in full while this process runs; it is no longer persisted in a billing DB.
+in full while this process runs.
 These are not latency guarantees. Inspect `X-AML-Rerank`, fallback reasons and
 rate-hold counters to distinguish successful reranking from fallback.
 
@@ -172,7 +165,7 @@ installation nor tests in this repository modify a remote machine.
 
 `GET /health` is public and returns service, embedding and rerank diagnostics.
 JEV reports call/search counts, fallback reasons, optional input-token counts,
-in-flight calls and rate holds; it has no `budget` or estimated-dollar fields.
+in-flight calls and rate holds.
 Counters reset on process restart. Successful health alone does not prove a
 successful paid rerank.
 
@@ -222,7 +215,7 @@ use temporary SQLite stores, and make no paid model calls. They exercise auth,
 sequential idempotency, namespace isolation, real HTTP Add/Search, JEV request
 and score parsing, return limits, missing/invalid usage, error fallback,
 401/403/503/529 recovery on the next search without replay, Retry-After and
-deadlines, independent concurrent searches, and startup without a billing DB.
+deadlines and independent concurrent searches.
 The public launcher is checked for auth, harness clearing, process locking and
 fresh diagnostic run ids. Run the vector equivalence regressions with
 `PYTHONPATH=src python -m pytest tests/test_vectors.py tests/test_vector_topk.py -q`.
@@ -249,5 +242,4 @@ accounts for roughly 25 seconds; the serving rate of 600 targets roughly 10
 seconds before network and storage overhead. Neither is a latency guarantee.
 
 The existing source snapshot and release links above identify the original
-submission. This change removes JEV billing gates and adds bounded-memory vector selection;
-it does not rewrite the original release tag or its source-hash manifest.
+submission. The maintenance branch adds bounded-memory vector selection.
