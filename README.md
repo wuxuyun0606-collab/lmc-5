@@ -2,11 +2,11 @@
 
 [简体中文](README.zh-CN.md) · [Two-hop recall](#follow-a-rollback-query-two-hops) · [Quickstart](#retrieve-your-first-memory) · [Evaluation](#what-you-can-reproduce) · [Documentation](docs/README.md)
 
-Last month a release nearly failed, and Alice called the rollback. Today you ask your agent, “Who should sign off this time?” Vector search can surface the old incident review. It still explains why caution matters. But Sam owns releases now. A useful memory has to preserve both facts.
+Last month a release nearly failed, and Alice called the rollback. Today you ask your agent, “Who should sign off this time?” Vector search can surface the old incident review. The review still explains why caution matters. But Sam owns releases now. A useful memory has to preserve both facts.
 
 **LMC-5 gives a memory five coordinates across its lifetime.** When the agent records the decision, it places it on that release’s timeline. Overnight it can acquire links to the checklist and the incident review. At the next recall, those links bring back the lesson, while the fact history tells the agent who owns the decision today. [Write, overnight consolidation and recall](docs/CONNECTING_XYZEM.md)
 
-**One long-running personal deployment.** On 11 November 2026, Kelin reported **8,337 memories and 13,456 links** drawn from roughly **110,000 raw dialogue records**. Consolidation ran shortly after 5 a.m. each day. On one morning it examined **68 candidate pairs** and added **two links**. [Kelin’s deployment account, in Chinese](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
+**One long-running personal deployment.** On 11 November 2026, Kelin reported **8,337 memories and 13,456 links** drawn from roughly **110,000 raw dialogue records**. Consolidation ran shortly after 5 a.m. each day. On one morning it examined **68 candidate pairs** and added **two links**. The underlying records from this private deployment are unavailable for independent public verification. [Kelin’s deployment account, in Chinese](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
 
 **The AML competition edition** ran synchronous ingestion and retrieval. It omitted the cross-session timeline (X), persistent relation graph (Y) and overnight consolidation. Its scores describe that retriever. [Competition scope and results](extras/aml/README.md)
 
@@ -20,7 +20,7 @@ Last month a release nearly failed, and Alice called the rollback. Today you ask
 | E · When an experience matters | The agent that lived through the near miss records why it hesitated and what it should ask next time. | It can remember the facts and still respond as casually as it would to a routine release. |
 | M · As time passes | Routine logs can lose priority while a useful lesson stays accessible. Identity records receive protection. | Repetitive logs crowd out important memories. “A persona that forgets the user's name is worse than no persona.” |
 
-Think of the five coordinates as clinicians consulting on one case. When Y surfaces Alice’s review, Z still determines when its facts applied. E can make the agent more careful in its reply. A change of owner requires its own factual evidence. [How the coordinates work together](docs/CONNECTING_XYZEM.md)
+Think of the five coordinates as clinicians consulting on one case. When Y surfaces Alice’s review, Z still determines when its facts applied. E can make the agent more careful in its reply. A change of owner requires its own factual evidence. M cleanup can begin only after the Z audit identifies which facts are current. [How the coordinates work together](docs/CONNECTING_XYZEM.md)
 
 **A fact needs a period of validity. An experience needs an author.** The agent that lived an experience writes the entry and chooses its initial priority. If its understanding changes, it writes a successor. An overnight job can propose a revision while preserving the original account. The M patrol flags candidates for review. As the architecture guide puts it, “Automatic memory mutation is where cute systems go to become haunted filing cabinets.” [Experience authorship](docs/E_EXPERIENCE.md#authorship-and-initial-order) · [Metabolism and protected memories](docs/M_METABOLISM.md) · [Architecture](docs/architecture.md)
 
