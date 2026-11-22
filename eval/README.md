@@ -39,4 +39,14 @@ The graph has eight records. Two queries need two hops to reach the labeled targ
 
 The rollback query also reached an irrelevant inventory record through a valid project edge. The direct query already had its answer and gained two unnecessary neighbors. A connection can be valid even when it adds no evidence for the question.
 
-These counts describe the quickstart replay and seven hand-written checkpoints and queries. The AML leaderboard covers a different retrieval system. To measure generalization, the next experiment should fix a public dataset revision and sample, label current and historical questions separately, and compare lexical, vector and hybrid retrieval at the same return budget.
+## What these experiments cover
+
+The SQLite replay exercises Y and Z. The three unrelated records are **3 of the 10 returned with expansion enabled**, across these three queries. Two of them came from the direct query. The two-hop queries together added one unrelated record. This distinction matters when deciding which queries should expand.
+
+| Axis | Evidence still needed |
+| --- | --- |
+| X · Timeline | Replay interleaved sessions on several threads with labeled event order and thread membership. Score whether recall recovers the correct thread and sequence. Message timestamps alone cannot establish this. |
+| E · Experience | An offline fixture can test authorship and write permissions. Evaluating the quality of a first-person experience record requires a session in which the primary agent lives the event, authors the record and later reviews its effect. |
+| M · Metabolism | A controlled clock can test weight changes or archive rules. Measuring their long-term value requires repeated recalls across days, including whether a downgraded memory is needed again. |
+
+A separate [LoCoMo pilot](LOCOMO.md) compares lexical, vector and hybrid evidence retrieval on public conversations, with current-state and historical-event questions scored separately. The AML leaderboard covers the competition adapter.

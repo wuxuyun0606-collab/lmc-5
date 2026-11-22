@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added a [maintainer release checklist](docs/RELEASE.md) and a [paired public-data retrieval pilot](eval/LOCOMO.md).
+
+## 0.3.0 — 2026-11-22
+
+- The package and CLI report their version through `lmc5.__version__` and `lmc5 --version`. CI builds a wheel and source distribution and verifies a write and recall from an isolated wheel installation.
+- Added the offline [Y and Z comparisons](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0/eval) and quickstart seed replay. The AML adapter guide records the service closure and the scope of the competition retriever.
+- Preserved repeat message occurrences across distinct writes. The AML adapter commits each Add batch with its request receipt, and PostgreSQL vector recall checks current-fact eligibility.
+
+[Tagged source](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0) · [Merge CI](https://github.com/wuxuyun0606-collab/lmc-5/actions/runs/45017426267)
+
 ### Deployment and recall
 
 - SQLite recall accepts `--reranker jev`. The PostgreSQL prompt hook accepts `LMC5_RERANKER=jev`. Both use the optional TypeSafe adapter. [Setup and data sent](docs/JEV.md)
