@@ -1,5 +1,12 @@
 # PostgreSQL and pgvector
 
+**Existing raw-event archives:** Stop legacy SessionEnd writers, back up the database,
+then apply [the event identity migration](migrations/20261122_raw_event_identity.sql)
+before starting the updated hook or reapplying the schema. It preserves row IDs and
+original ingestion times, and restores event times from usable transcript metadata.
+Replay retained transcripts to recover repeated turns that the old constraint omitted.
+New installs can use `schema.sql` directly.
+
 Use this backend when your agent already uses PostgreSQL or needs an approximate vector index. It ships in the source checkout as a set of Python modules. The installed `lmc5` command always opens SQLite.
 
 Run the three steps below from the checkout root to check keyword recall in a fresh test database. This path requires no model credentials.
@@ -7,7 +14,7 @@ Run the three steps below from the checkout root to check keyword recall in a fr
 ## Alpha status
 
 - The walkthrough checks schema creation and a curated full-text round trip on your PostgreSQL server.
-- CI runs Python tests and loopback AML tests with synthetic providers. Live PostgreSQL, provider accuracy and throughput require separate checks.
+- CI checks PostgreSQL archive migration and vector recall with pgvector, alongside the Python and loopback AML tests. Provider accuracy and throughput require separate checks.
 - The prompt hook wires text, graph and emotion channels. The host supplies model configuration, scheduled jobs and their database callbacks.
 - A NightDream proposer must raise on failure. An empty list means processing succeeded with zero candidates.
 - Handle `NightDreamWriteError` as a failed batch. Advance the host’s input cursor only after successful writes and make the writer idempotent so retries can safely revisit a chunk.

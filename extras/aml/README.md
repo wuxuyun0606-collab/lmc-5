@@ -65,6 +65,12 @@ The organizer lists these LMC-5 entries in the open-source division. The version
 
 ## Version and source correspondence
 
+The current maintenance fixes preserve individual message occurrences, including identical
+text in different turns, and commit a complete Add batch with its request receipt.
+A retry with the same request ID and payload returns the recorded response.
+Current builds retain millisecond precision in returned event timestamps.
+For the original registration implementation, use the tagged snapshot below.
+
 | Record | Public source | What the source establishes |
 |---|---|---|
 | Registration snapshot · 16 Oct 2026 | [`v0.3.0-aml.1`](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1/extras/aml) · [`d02563a`](https://github.com/wuxuyun0606-collab/lmc-5/commit/d02563ad7885c027778429287a29d35e3fc2d6e7) | The Add/Search service, JEV bridge and startup profile. |

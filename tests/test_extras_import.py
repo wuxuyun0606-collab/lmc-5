@@ -804,7 +804,7 @@ def test_night_dream_has_no_automatic_e_axis_writer():
         write_candidate=write_candidate,
         importance_threshold=5,
     )
-    res = dream.run([Chunk(id=1, text="x" * 200)], apply=True)
+    res = dream.run([Chunk(id=1, text="we will always be honest with each other. " * 5)], apply=True)
     assert res.written_ids == [1]
 
 
