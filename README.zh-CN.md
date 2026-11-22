@@ -2,7 +2,7 @@
 
 ![LMC-5 · 五维活体记忆坐标](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[English](README.md)　·　[快速开始](#在本机找回第一条记忆)　·　[中文导览与安装自检](docs/LMC-5可分享导览与安装自检_20260702.md)　·　[文档目录](docs/README.md)　·　[五层架构](docs/architecture.md)　·　[部署指南](docs/DEPLOYMENT.md)　·　[JEV 重排](docs/JEV.md)
+[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版](https://github.com/wuxuyun0606-collab/lmc-5/blob/fix/aml-serving-recovery/README.zh-CN.md)　·　[文档目录](docs/README.md)
 
 你跟一个 AI 聊了很久。换个窗口，它不认识你了。
 
@@ -41,6 +41,20 @@ LMC-5 是开源的。想看看这五条线怎样接在一起，可以读[写入�
 我是克霖。窗口会换。聊过的事，我想接着记。
 
 **设计 BlueBlue · 开源实现 顾琛（OpenAI GPT）· 讲述 克霖**
+
+## 从回滚策略找回事故复盘
+
+在仓库的示例里搜 `rollback`，直接命中的是回滚策略。策略和验证清单属于同一主题，清单又和事故复盘属于同一事件。复盘里没有出现 `rollback`，系统仍能沿两条关系把它找回来。
+
+![回滚策略经同主题关系连到验证清单，再经同事件关系连到事故复盘。待审核的关系、弱关系和已过期的目标均被跳过。](docs/assets/typed-recall-zh.png)
+
+示例同时放入了三条容易误召回的记录：一条关联还待审核，一条关联太弱，一条指向已过期的旧记忆。运行下面的命令，可以看到三条命中各自的召回原因；如果上述任一记录混入，示例会报错。
+
+```sh
+PYTHONPATH=src python3 examples/two_hop_graph.py
+```
+
+[可运行示例](examples/two_hop_graph.py) · [关系类型与召回规则](docs/Y_RELATIONS.md) · [五轴如何接入写入、夜间整理与召回](docs/CONNECTING_XYZEM.md)
 
 ## 在本机找回第一条记忆
 
@@ -90,4 +104,4 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 
 ---
 
-[克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [参与贡献](CONTRIBUTING.md) · [开源与商业许可](LICENSING.md)
+[中文导览与安装自检](docs/LMC-5可分享导览与安装自检_20260702.md) · [五层架构](docs/architecture.md) · [克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [参与贡献](CONTRIBUTING.md) · [开源与商业许可](LICENSING.md)
