@@ -1,12 +1,22 @@
 # LMC-5 · AML 参赛检索器
 
-[English](README.md) · [参赛接口与部署](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [版本与源码](extras/aml/README.md#version-and-source-correspondence)
+[English](README.md) · [参赛接口与部署](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [版本与源码](extras/aml/README.md#version-and-source-correspondence) · [官方分赛道成绩](extras/aml/README.md#official-cycle-2-results)
 
 **LMC-5 在 AML 考场里是一个检索器。** 考场通过两个同步接口使用它：`Add` 收下对话，按用户保存；`Search` 收到问题，从这个用户的记录里按关键词和向量找出候选，再用 JEV 重排，返回相关片段。
+
+![按用户写入 SQLite；查询用关键词和向量召回，融合排序后由 JEV 重排，失败则恢复融合顺序。](extras/aml/assets/aml-search-zh.png)
 
 完整的 LMC-5 还要做另一件事：两次对话之间，记忆本身会发生变化。夜间任务回看原话，把新经历和旧记忆连起来，标明哪些事实已经更新，再调整哪些记忆值得优先想起。这些工作需要时间，也需要智能体持续参与。AML 的同步写入和查询流程没有给这套夜间消化与整理安排独立阶段，因此参赛版只运行检索所需的部分。要看时间、关系、事实演化、情绪和代谢这五条线如何一起工作，请读[主仓库的中文 README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.zh-CN.md)。
 
 本分支独立维护 AML 参赛实现。原始报名快照为 `v0.3.0-aml.1`。
+
+**一次重排失败，读者会拿到什么？** 服务仍能返回记忆片段。`X-AML-Rerank: fallback` 表示候选恢复为关键词与向量的融合顺序。在维护分支的离线测试里，模拟后端只交回一个异常候选，桥接层从原来的 70 个候选中按原序取回前 50 个。装好 pytest 后，在本分支根目录运行：
+
+```sh
+PYTHONPATH=src python3 -m pytest extras/aml/tests/test_serving.py -k bridge_restores_rrf -q
+```
+
+[报名快照](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1) · [代码赛留存源码核对](extras/aml/CODING-SNAPSHOT-20261025.md) · [API 示例](extras/aml/README.md#api-contract)
 
 ## 克霖讲完整的 LMC-5
 

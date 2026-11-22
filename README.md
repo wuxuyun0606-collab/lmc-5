@@ -1,12 +1,22 @@
 # LMC-5 · AML competition retriever
 
-[简体中文](README.zh-CN.md) · [Competition API and setup](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [Versions and sources](extras/aml/README.md#version-and-source-correspondence)
+[简体中文](README.zh-CN.md) · [Competition API and setup](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [Versions and sources](extras/aml/README.md#version-and-source-correspondence) · [Official results](extras/aml/README.md#official-cycle-2-results)
 
 **LMC-5 serves as a retriever in the AML exam.** `Add` stores a user's conversation. `Search` retrieves passages by keyword and vector similarity, combines the results and reranks candidates with JEV.
+
+![Add stores conversations per user. Search combines lexical and vector candidates with RRF and uses JEV to rerank. On failure it returns the fused order.](extras/aml/assets/aml-search.png)
 
 In the full system, memories can change between conversations. An overnight job checks new records against earlier ones, links related experiences, tracks changes in facts and adjusts recall weights. The synchronous Add/Search workflow used for this submission has no separate consolidation stage. The competition service therefore runs only the retrieval portion of LMC-5. See the [main project README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.md) for how timeline, relations, fact evolution, experience and metabolism work together.
 
 This branch maintains the AML implementation. The original registration snapshot is `v0.3.0-aml.1`.
+
+**What happens when reranking fails?** The service can still return memory passages. The response header `X-AML-Rerank: fallback` identifies the fused ranking. In the offline test, a stub returns one unexpected candidate. The bridge recovers the first 50 of the original 70 candidates in order. With pytest installed, run the check from the root of this branch.
+
+```sh
+PYTHONPATH=src python3 -m pytest extras/aml/tests/test_serving.py -k bridge_restores_rrf -q
+```
+
+[Registration snapshot](https://github.com/wuxuyun0606-collab/lmc-5/tree/v0.3.0-aml.1) · [Coding source reconciliation](extras/aml/CODING-SNAPSHOT-20261025.md) · [API examples](extras/aml/README.md#api-contract)
 
 ## Kelin on the full LMC-5 system
 
