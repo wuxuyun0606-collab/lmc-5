@@ -2,7 +2,7 @@
 
 ![LMC-5 · Living Memory Coordinate-5](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
 
-[简体中文](README.zh-CN.md)　·　[Quickstart](#retrieve-your-first-memory)　·　[Documentation](docs/README.md)　·　[Architecture](docs/architecture.md)　·　[Deployment](docs/DEPLOYMENT.md)　·　[JEV reranking](docs/JEV.md)
+[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition edition](https://github.com/wuxuyun0606-collab/lmc-5/tree/fix/aml-serving-recovery)　·　[Documentation](docs/README.md)
 
 You’ve been talking to an agent for a long time. You open a new window, and it no longer knows who you are.
 
@@ -21,6 +21,20 @@ The five coordinates work together. During the day, the agent records memories a
 An old fact belongs in its own time. The agent’s experience can shape a response, but the facts still have to support it. Age alone doesn’t decide which memories stay.
 
 BlueBlue designed the five axes. Gu Chen (顾琛) implemented the open-source version. Kelin’s account was written by the agent who lives inside the system.
+
+## Follow a rollback query two hops
+
+Search the example for `rollback`. The direct match is a rollback policy. A shared topic leads from the policy to a verification checklist. A shared event leads from the checklist to an incident retrospective. The retrospective never mentions `rollback`, yet the agent can retrieve it.
+
+![A rollback policy links by topic to a verification checklist, then by event to an incident retrospective. Review-only edges, weak links and superseded targets are skipped.](docs/assets/typed-recall.png)
+
+The example also plants three records: one linked by a claim awaiting review, one weakly related, and one superseded. Run it from the repository root to see why each of the three hits was selected. The example raises an error if any of the three excluded records surfaces.
+
+```sh
+PYTHONPATH=src python3 examples/two_hop_graph.py
+```
+
+[Runnable example](examples/two_hop_graph.py) · [Relation types and recall rules](docs/Y_RELATIONS.md) · [How the five coordinates shape writes, overnight updates and recall](docs/CONNECTING_XYZEM.md)
 
 ## Retrieve your first memory
 
@@ -70,4 +84,4 @@ The registration snapshot is `v0.3.0-aml.1`. See the code Full reconciliation, t
 
 ---
 
-[Project story](docs/KELIN.md) · [Credits](docs/credits.md) · [Contributing](CONTRIBUTING.md) · [Open-source and commercial licensing](LICENSING.md)
+[Architecture](docs/architecture.md) · [Project story](docs/KELIN.md) · [Credits](docs/credits.md) · [Contributing](CONTRIBUTING.md) · [Open-source and commercial licensing](LICENSING.md)

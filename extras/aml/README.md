@@ -2,6 +2,8 @@
 
 **LMC-5 在 AML 考场里是一个检索器。** 考场通过两个同步接口使用它：`Add` 收下对话，按用户保存；`Search` 收到问题，从这个用户的记录里按关键词和向量找出候选，再用 JEV 重排，返回相关片段。
 
+![按用户写入 SQLite；查询用关键词和向量召回，融合排序后由 JEV 重排，失败则恢复融合顺序。](assets/aml-search-zh.png)
+
 完整的 LMC-5 还要做另一件事：两次对话之间，记忆本身会发生变化。夜间任务回看原话，把新经历和旧记忆连起来，标明哪些事实已经更新，再调整哪些记忆值得优先想起。这些工作需要时间，也需要智能体持续参与。AML 的同步写入和查询流程没有给这套夜间消化与整理安排独立阶段，因此参赛版只运行检索所需的部分。要看时间、关系、事实演化、情绪和代谢这五条线如何一起工作，请读[主仓库的中文 README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.zh-CN.md)。
 
 [版本与源码](#version-and-source-correspondence) · [部署](#install-and-configure-linux--macos-python-39) · [API](#api-contract)
