@@ -73,6 +73,11 @@ does not explain the reported score/response differences without paired logs.
 
 ## Reproduction checks
 
+The verifier reads immutable commit `4f72877` from local Git history by default.
+For a downloaded archive, run the current verifier with `--source-root PATH` pointing
+to the extracted historical snapshot. Its byte hashes and Python 3.9-format AST
+digests refer to that snapshot. Later maintenance fixes have their own commits.
+
 Use the documented virtualenv and optional service dependencies, then run:
 
 ```bash

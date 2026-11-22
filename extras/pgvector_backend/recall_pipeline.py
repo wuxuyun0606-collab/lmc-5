@@ -1200,7 +1200,8 @@ def vector_search_adapter(
     """把 PgvectorStore 包成 vector_search callable。"""
     def call(query: str, top_k: int) -> list[RecallHit]:
         vec = query_embedder(query)
-        hits = store.search_vectors(query_vec=vec, owner_type=owner_type, top_k=top_k)
+        hits = store.search_vectors(query_vec=vec, owner_type=owner_type, top_k=top_k,
+                                    current_curated_only=(owner_type == "curated"))
         return [
             RecallHit(
                 source_id=h.owner_id,
@@ -1228,7 +1229,7 @@ def fts_search_adapter(conn, table: str = "lmc5_curated_memories"):
                 f"SELECT id, title, content, "
                 f"  ts_rank(content_tsv, plainto_tsquery('simple', %s)) AS rank "
                 f"FROM {table} "
-                f"WHERE version_status='current' "
+                f"WHERE version_status='current' AND (fact_key IS NULL OR active_fact) "
                 f"  AND content_tsv @@ plainto_tsquery('simple', %s) "
                 f"ORDER BY rank DESC LIMIT %s",
                 (query, query, top_k),
@@ -1494,6 +1495,7 @@ def graph_expand_adapter(
                   AND mr.target_id != mr.source_id
                   AND mr.relation_type = ANY(%s)
                   AND cm.version_status = 'current'
+                  AND (cm.fact_key IS NULL OR cm.active_fact)
                   AND cm.source != ALL(%s)
                 UNION ALL
                 SELECT mr.source_id AS tid, mr.strength FROM {table_relations} mr
@@ -1504,6 +1506,7 @@ def graph_expand_adapter(
                   AND mr.source_id != mr.target_id
                   AND mr.relation_type = ANY(%s)
                   AND cm.version_status = 'current'
+                  AND (cm.fact_key IS NULL OR cm.active_fact)
                   AND cm.source != ALL(%s)
             ) t GROUP BY tid ORDER BY strength DESC
             """
@@ -1544,7 +1547,7 @@ def graph_expand_adapter(
             ids = [eid for eid, _ in expanded]
             cur.execute(
                 f"SELECT id, title, content FROM {table_curated} "
-                f"WHERE id = ANY(%s) AND version_status = 'current'",
+                f"WHERE id = ANY(%s) AND version_status = 'current' AND (fact_key IS NULL OR active_fact)",
                 (ids,),
             )
             detail = {int(r[0]): (r[1] or "", (r[2] or "")[:300]) for r in cur.fetchall()}
@@ -1616,7 +1619,7 @@ def emotion_resonate_adapter(
                 f"       resolved, protected, created_at, last_hit, category, source, "
                 f"       e_authored_by, e_initial_priority "
                 f"FROM {table_curated} "
-                f"WHERE version_status = 'current' "
+                f"WHERE version_status = 'current' AND (fact_key IS NULL OR active_fact) "
                 f"  AND category = ANY(%s) "
                 f"  AND (resolved IS NULL OR resolved = false) "
                 f"  AND valence IS NOT NULL AND arousal IS NOT NULL "

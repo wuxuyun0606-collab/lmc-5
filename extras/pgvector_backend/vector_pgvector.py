@@ -199,6 +199,7 @@ class PgvectorStore:
         owner_type: Optional[str] = None,
         top_k: int = 8,
         min_similarity: float = 0.0,
+        current_curated_only: bool = False,
     ) -> list[VectorHit]:
         """ANN 检索 top-K
 
@@ -220,6 +221,12 @@ class PgvectorStore:
         if owner_type:
             sql += "AND owner_type = %s "
             params.append(owner_type)
+        if current_curated_only:
+            sql += (
+                "AND owner_type = 'curated' AND EXISTS ("
+                "SELECT 1 FROM lmc5_curated_memories m WHERE m.id = owner_id "
+                "AND m.version_status = 'current' AND (m.fact_key IS NULL OR m.active_fact)) "
+            )
         sql += "ORDER BY embedding <=> %s::halfvec LIMIT %s"
         params.extend([vec_lit, top_k])
 

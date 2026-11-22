@@ -184,3 +184,16 @@ def test_dream_runner_marks_proposer_failure_as_error_and_continues() -> None:
     assert "invalid provider response" in steps["hippocampus"].error
     assert steps["patrol"].status == "ok"
     assert patrol_calls == ["ran"]
+
+
+def test_evidence_must_match_cited_input_before_write():
+    missing = dict(_candidate("Wrong source"), source_chunk_ids=[1, 999])
+    invented = dict(_candidate("Wrong quote"), evidence="The source never says this.")
+    suffix = dict(_candidate("Wrong suffix"), evidence="A meaningful source passage. " * 8 + "invented")
+    wrong = dict(_candidate("Wrong chunk"), source_chunk_ids=[2])
+    dream = NightDream(proposer=lambda _: [missing, invented, suffix, wrong, _candidate()],
+                       write_candidate=lambda _: 7)
+    result = dream.run([_chunk(), Chunk(id=2, text="Another distinct passage. " * 10)], apply=True)
+    assert [c.title for c in result.promoted] == ["Recovered memory"]
+    assert result.written_ids == [7]
+    assert len(result.rejected) == 4

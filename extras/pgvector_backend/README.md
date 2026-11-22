@@ -1,5 +1,12 @@
 # pgvector backend (opt-in)
 
+**Existing raw-event archives:** Stop legacy SessionEnd writers, back up the database,
+then apply [the event identity migration](migrations/20261122_raw_event_identity.sql)
+before starting the updated hook or reapplying the schema. It preserves row IDs and
+original ingestion times, and restores event times from usable transcript metadata.
+Replay retained transcripts to recover repeated turns that the old constraint omitted.
+New installs can use `schema.sql` directly.
+
 > Production-grade ANN reference for LMC-5.
 > Opt-in. Does not change the offline-first SQLite default.
 

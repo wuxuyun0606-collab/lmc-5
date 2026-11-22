@@ -1,30 +1,37 @@
 """Hook · SessionEnd · 关窗口归档
 
 Claude Code 的 SessionEnd hook 在会话关闭时触发一次。
-作用：把这次 session 的 jsonl 原文导入 messages 表 + 提取 facts + 可选触发
-'day-time express' 做梦（白天版的简化 hippocampus）。
+作用：把 session JSONL 中的文本消息归档到 lmc5_raw_events。
 
 这层不写到 curated_memories——curated 由夜间 night_dream 才写。
 SessionEnd 只做 raw event journal 的入库，符合 LMC-5 "raw vs curated 分离"原则。
 
-集成（settings.json 节选）:
-    {
-      "hooks": {
-        "SessionEnd": [{
-          "type": "command",
-          "command": "python -m extras.pgvector_backend.hooks.session_end"
-        }]
-      }
-    }
+配置示例见 docs/HOOKS_AND_RECALL.md。
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+
+def _event_time(value):
+    """Read an absolute transcript timestamp. Untimed events use their ingestion time."""
+    try:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            seconds = value / 1000 if abs(value) >= 100_000_000_000 else value
+            return datetime.fromtimestamp(seconds, tz=timezone.utc)
+        if isinstance(value, str):
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                return parsed
+    except (ValueError, OverflowError, OSError):
+        pass
+    return None
 
 
 def archive_session_jsonl(
@@ -33,26 +40,13 @@ def archive_session_jsonl(
     jsonl_path: Path,
     messages_table: str = "lmc5_raw_events",
 ) -> int:
-    """逐行读取 session JSONL，按 (role, content, metadata, created_at) 入表。
-    返回入库条数。
-
-    入表 schema 假设：
-      CREATE TABLE lmc5_raw_events (
-        id BIGSERIAL PRIMARY KEY,
-        session_id TEXT,
-        role TEXT,
-        content TEXT,
-        metadata JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        UNIQUE (session_id, role, content)
-      );
-    """
+    """Archive turns idempotently, retaining event time and ingestion time separately."""
     if not jsonl_path.exists():
         return 0
 
     count = 0
     with conn.cursor() as cur:
-        for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        for line_number, line in enumerate(jsonl_path.read_text(encoding="utf-8").splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
@@ -60,8 +54,14 @@ def archive_session_jsonl(
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            role = event.get("role") or event.get("type") or "unknown"
-            content = event.get("content")
+            if not isinstance(event, dict):
+                continue
+            nested = event.get("message")
+            message = event
+            if "content" not in event and isinstance(nested, dict):
+                message = nested
+            role = message.get("role") or event.get("role") or event.get("type") or "unknown"
+            content = message.get("content")
             if isinstance(content, list):
                 # Claude Code multimodal content blocks → 拼成文本
                 content = "\n".join(
@@ -74,18 +74,34 @@ def archive_session_jsonl(
 
             metadata = {k: v for k, v in event.items()
                         if k not in ("role", "type", "content")}
-            try:
-                cur.execute(
-                    f"INSERT INTO {messages_table} "
-                    f"  (session_id, role, content, metadata) "
-                    f"VALUES (%s, %s, %s, %s) "
-                    f"ON CONFLICT DO NOTHING",
-                    (session_id, role, content, json.dumps(metadata, ensure_ascii=False)),
-                )
-                count += cur.rowcount
-            except Exception:
-                # 单条入库失败不阻塞整段
-                continue
+            if message is not event:
+                metadata["message"] = {k: v for k, v in message.items() if k != "content"}
+            event_id = event.get("uuid") or event.get("event_id")
+            if event_id:
+                key = f"id:{event_id}"
+            else:
+                # Stable across replays of an append-only transcript; repeated lines
+                # have distinct positions. The digest distinguishes rotated files.
+                digest = hashlib.sha256(line.encode("utf-8")).hexdigest()
+                key = f"line:{line_number}:{digest}"
+
+            timestamp = _event_time(event.get("timestamp", message.get("timestamp")))
+            metadata_json = json.dumps(metadata, ensure_ascii=False)
+            # Adopt a pre-migration row on replay without changing its original text.
+            cur.execute(
+                f"UPDATE {messages_table} SET event_key=%s, created_at=COALESCE(%s, created_at) "
+                "WHERE event_key IS NULL AND session_id=%s AND role=%s AND content=%s "
+                "AND metadata=%s::jsonb",
+                (key, timestamp, session_id, role, content, metadata_json),
+            )
+            cur.execute(
+                f"INSERT INTO {messages_table} "
+                "(session_id, role, content, metadata, event_key, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, COALESCE(%s, CURRENT_TIMESTAMP)) "
+                "ON CONFLICT (session_id, event_key) DO NOTHING",
+                (session_id, role, content, metadata_json, key, timestamp),
+            )
+            count += cur.rowcount
     conn.commit()
     return count
 
@@ -117,7 +133,7 @@ def trigger_express_dream(conn, session_id: str) -> Optional[dict]:
 def extract_session_info(event: dict) -> tuple[Optional[str], Optional[Path]]:
     """从 hook event 里提取 session_id 和 jsonl 路径。"""
     sid = event.get("session_id") or event.get("sessionId")
-    jsonl = event.get("session_log") or event.get("sessionLog")
+    jsonl = event.get("transcript_path") or event.get("session_log") or event.get("sessionLog")
     return (
         sid if isinstance(sid, str) else None,
         Path(jsonl) if isinstance(jsonl, str) else None,

@@ -7,10 +7,12 @@ import json
 import re
 import sqlite3
 from collections.abc import Iterable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .models import (
     EVENT_ROLES,
@@ -32,6 +34,14 @@ from .models import (
 from .redact import redact_obj
 from .scoring import GateMode, metabolic_gate, priority_score
 from .vector import cosine_similarity, vector_from_json, vector_hash, vector_to_json
+
+
+def _atomic_write(method):
+    @wraps(method)
+    def write(store, *args, **kwargs):
+        with store.write_transaction():
+            return method(store, *args, **kwargs)
+    return write
 
 
 def _connect(path: str | Path) -> sqlite3.Connection:
@@ -403,6 +413,7 @@ def _row_to_memory(row: sqlite3.Row) -> MemoryRecord:
         updated_at=row["updated_at"],
         hit_count=row["hit_count"],
         last_hit_at=row["last_hit_at"] if "last_hit_at" in row.keys() else None,
+        occurrence_key=row["occurrence_key"] if "occurrence_key" in row.keys() else None,
         content_hash=row["content_hash"],
     )
 
@@ -460,6 +471,23 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
     def close(self) -> None:
         self.conn.close()
 
+    @contextmanager
+    def write_transaction(self):
+        """Group add_memory and upsert_vector writes in one SQLite transaction."""
+        nested = self.conn.in_transaction
+        self.conn.execute("SAVEPOINT lmc5_write" if nested else "BEGIN IMMEDIATE")
+        try:
+            yield
+            self.conn.execute("RELEASE lmc5_write" if nested else "COMMIT")
+        except BaseException:
+            if self.conn.in_transaction:
+                if nested:
+                    self.conn.execute("ROLLBACK TO lmc5_write")
+                    self.conn.execute("RELEASE lmc5_write")
+                else:
+                    self.conn.rollback()
+            raise
+
     def init(self) -> None:
         self.conn.executescript(
             """
@@ -490,7 +518,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
                 hit_count INTEGER NOT NULL DEFAULT 0,
                 last_hit_at TEXT,
-                content_hash TEXT NOT NULL UNIQUE
+                content_hash TEXT NOT NULL UNIQUE,
+                occurrence_key TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_memories_fact_key
@@ -707,6 +736,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             str(row["name"])
             for row in self.conn.execute("PRAGMA table_info(memories)").fetchall()
         }
+        if "occurrence_key" not in columns:
+            self.conn.execute("ALTER TABLE memories ADD COLUMN occurrence_key TEXT")
         if "last_hit_at" not in columns:
             self.conn.execute("ALTER TABLE memories ADD COLUMN last_hit_at TEXT")
         if "e_authored_by" not in columns:
@@ -803,6 +834,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         for row in rows:
             self._index_memory_entities(_row_to_memory(row))
 
+    @_atomic_write
     def add_memory(
         self,
         *,
@@ -825,6 +857,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         e_authored_by: str = "",
         e_initial_priority: int | None = None,
         source: str = "",
+        occurrence_key: str | None = None,
     ) -> tuple[MemoryRecord, bool]:
         validate_choice("status", status, FACT_STATUSES)
         validate_choice("risk_level", risk_level, RISK_LEVELS)
@@ -865,6 +898,23 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         clean_fact_key = fact_key.strip() if fact_key else None
         digest = _content_hash(clean_title, clean_content, clean_fact_key)
 
+        if clean_fact_key and active_fact and status == "current" and occurrence_key is None:
+            current = self.conn.execute(
+                "SELECT * FROM memories WHERE fact_key = ? AND active_fact = 1 "
+                "AND status = 'current' AND title = ? AND content = ?",
+                (clean_fact_key, clean_title, clean_content),
+            ).fetchone()
+            if current:
+                return _row_to_memory(current), False
+            previous = self.conn.execute(
+                "SELECT 1 FROM memories WHERE fact_key = ? AND title = ? AND content = ? LIMIT 1",
+                (clean_fact_key, clean_title, clean_content),
+            ).fetchone()
+            if previous:
+                occurrence_key = f"fact:{uuid4().hex}"
+
+        if occurrence_key is not None:
+            digest = hashlib.sha256(f"{digest}:{occurrence_key}".encode()).hexdigest()
         existing = self.conn.execute(
             "SELECT * FROM memories WHERE content_hash = ?",
             (digest,),
@@ -893,8 +943,8 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 active_fact, status, risk_level, urgency, response_tendency,
                 valence, arousal, tension, confidence, growth_delta,
                 e_authored_by, e_initial_priority, source,
-                content_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                content_hash, occurrence_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 clean_title,
@@ -917,6 +967,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 e_initial_priority,
                 source.strip(),
                 digest,
+                occurrence_key,
             ),
         )
         memory_id = int(cur.lastrowid)
@@ -937,7 +988,6 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
         )
         record = self.get_memory(memory_id)
         self._index_memory_entities(record)
-        self.conn.commit()
         return record, True
 
     def get_memory(self, memory_id: int) -> MemoryRecord:
@@ -1645,6 +1695,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
             },
         }
 
+    @_atomic_write
     def upsert_vector(
         self,
         *,
@@ -1693,7 +1744,6 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 content_hash,
             ),
         )
-        self.conn.commit()
         row = self.conn.execute(
             """
             SELECT * FROM vectors
@@ -2368,6 +2418,7 @@ class MemoryStore(AbstractContextManager["MemoryStore"]):
                 e_authored_by=data.get("e_authored_by", ""),
                 e_initial_priority=data.get("e_initial_priority"),
                 source=data.get("source", ""),
+                occurrence_key=data.get("occurrence_key"),
             )
             if record and is_new:
                 created += 1
