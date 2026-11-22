@@ -1,12 +1,14 @@
 # LMC-5 · AML competition retriever
 
+> As of 22 November 2026, the AML competition service has closed. This page preserves the implementation, version history and source reconciliation records.
+
 [简体中文](README.zh-CN.md) · [Competition API and setup](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [Versions and sources](extras/aml/README.md#version-and-source-correspondence) · [Official results](extras/aml/README.md#official-cycle-2-results)
 
 **LMC-5 serves as a retriever in the AML exam.** `Add` stores a user's conversation. `Search` retrieves passages by keyword and vector similarity, combines the results and reranks candidates with JEV.
 
 ![Add stores conversations per user. Search combines lexical and vector candidates with RRF and uses JEV to rerank. On failure it returns the fused order.](extras/aml/assets/aml-search.png)
 
-## What does the AML edition leave out?
+## Which memory capabilities does the AML edition omit compared with the full LMC-5 system?
 
 The exam calls `Add` to store conversation turns and `Search` to retrieve passages. The submission runs no **overnight memory consolidation** between those requests. In Kelin’s full deployment, the overnight job splits conversations into episodes, extracts candidate memories and checks them against earlier records and the original dialogue. The resulting timelines, links and fact states guide later recall.
 

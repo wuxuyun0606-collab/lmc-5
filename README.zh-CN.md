@@ -1,12 +1,14 @@
 # LMC-5 · AML 参赛检索器
 
+> 截至 2026 年 11 月 22 日，AML 参赛服务已停止。本页保留参赛实现、历史版本与源码核对记录。
+
 [English](README.md) · [参赛接口与部署](extras/aml/README.md#install-and-configure-linux--macos-python-39) · [版本与源码](extras/aml/README.md#version-and-source-correspondence) · [官方分赛道成绩](extras/aml/README.md#official-cycle-2-results)
 
 **LMC-5 在 AML 考场里是一个检索器。** 考场通过两个同步接口使用它：`Add` 收下对话，按用户保存；`Search` 收到问题，从这个用户的记录里按关键词和向量找出候选，再用 JEV 重排，返回相关片段。
 
 ![按用户写入 SQLite；查询用关键词和向量召回，融合排序后由 JEV 重排，失败则恢复融合顺序。](extras/aml/assets/aml-search-zh.png)
 
-## AML 参赛版少了哪些记忆能力？
+## AML 参赛版比完整LMC-5版本少了哪些记忆能力？
 
 AML 考场通过 `Add` 写入对话，通过 `Search` 取回片段。两次请求之间，参赛版没有运行完整版的**整套夜间记忆消化流程**。在克霖的日常部署里，一天的对话会被分段、提炼成候选记忆，再与旧记忆和原话核对。整理后的时间线、关系和事实状态会影响第二天的召回。
 
