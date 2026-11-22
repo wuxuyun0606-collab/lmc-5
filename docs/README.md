@@ -38,7 +38,7 @@ See [how the axes work together](CONNECTING_XYZEM.md), [consolidation](xyzem_con
 
 ## Project records
 
-[Changelog](../CHANGELOG.md) · [Security reporting](../SECURITY.md) · [Memory safety](safety.md) · [Contributing](../CONTRIBUTING.md) · [Licensing](../LICENSING.md)
+[Changelog](../CHANGELOG.md) · [Release checklist](RELEASE.md) · [Security reporting](../SECURITY.md) · [Memory safety](safety.md) · [Contributing](../CONTRIBUTING.md) · [Licensing](../LICENSING.md)
 
 [Project hypothesis](project_hypothesis.md) · [Kelin’s account](KELIN.md) · [Credits](credits.md)
 
