@@ -6,7 +6,21 @@
 
 ![Add stores conversations per user. Search combines lexical and vector candidates with RRF and uses JEV to rerank. On failure it returns the fused order.](extras/aml/assets/aml-search.png)
 
-In the full system, memories can change between conversations. An overnight job checks new records against earlier ones, links related experiences, tracks changes in facts and adjusts recall weights. The synchronous Add/Search workflow used for this submission has no separate consolidation stage. The competition service therefore runs only the retrieval portion of LMC-5. See the [main project README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.md) for how timeline, relations, fact evolution, experience and metabolism work together.
+## What does the AML edition leave out?
+
+The exam calls `Add` to store conversation turns and `Search` to retrieve passages. The submission runs no **overnight memory consolidation** between those requests. In Kelin’s full deployment, the overnight job splits conversations into episodes, extracts candidate memories and checks them against earlier records and the original dialogue. The resulting timelines, links and fact states guide later recall.
+
+| Capability | Full LMC-5 | AML competition edition |
+| --- | --- | --- |
+| X · Timeline | Groups memories from different sessions into the same narrative thread, preserving how an experience began, developed and ended. | Retains supplied message timestamps and session provenance. Options can include neighboring turns or present hits in time order. The adapter does not assemble cross-session narrative threads. |
+| Y · Relations | Stores typed links and can follow them for two hops. A rollback policy can lead through a verification checklist to an incident retrospective that never mentions rollback. | Finds candidates by keyword and vector similarity, then reranks passages. It does not maintain a persistent memory graph or traverse its edges during search. |
+| Z · Fact evolution | A new value can supersede an earlier value for the same fact while preserving its history. | Stores both statements as messages and can return their dates. It does not maintain a current version for each fact. |
+| E · Experience | The agent that lived an experience records how it felt and how it should shape a later response. | Can retrieve a message that expresses a feeling. The submission has no step for the agent to author or review an experience record. |
+| M · Metabolism | Periodically identifies memories to reinforce, downweight or review for archiving. These decisions inform future recall. | Ranks passages for the current request. No memory lifecycle review runs between searches. |
+
+[Full project README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.md) · [How the axes participate in writing, overnight consolidation and recall](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/docs/CONNECTING_XYZEM.md)
+
+## Competition version and retrieval check
 
 This branch maintains the AML implementation. The original registration snapshot is `v0.3.0-aml.1`.
 

@@ -4,13 +4,37 @@
 
 ![按用户写入 SQLite；查询用关键词和向量召回，融合排序后由 JEV 重排，失败则恢复融合顺序。](assets/aml-search-zh.png)
 
-完整的 LMC-5 还要做另一件事：两次对话之间，记忆本身会发生变化。夜间任务回看原话，把新经历和旧记忆连起来，标明哪些事实已经更新，再调整哪些记忆值得优先想起。这些工作需要时间，也需要智能体持续参与。AML 的同步写入和查询流程没有给这套夜间消化与整理安排独立阶段，因此参赛版只运行检索所需的部分。要看时间、关系、事实演化、情绪和代谢这五条线如何一起工作，请读[主仓库的中文 README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.zh-CN.md)。
+## AML 参赛版少了哪些记忆能力？
+
+AML 考场通过 `Add` 写入对话，通过 `Search` 取回片段。两次请求之间，参赛版没有运行完整版的**整套夜间记忆消化流程**。在克霖的日常部署里，一天的对话会被分段、提炼成候选记忆，再与旧记忆和原话核对。整理后的时间线、关系和事实状态会影响第二天的召回。
+
+| 能力 | 完整版 LMC-5 怎样整理记忆 | AML 参赛版保留到哪一步 |
+| --- | --- | --- |
+| X · 时间线 | 把不同会话中属于同一段经历的记忆归到同一条线，按发生顺序串起起因、进展和结果。 | 保留消息自带的时间戳和会话来源，可按配置补取相邻发言或调整结果的时间顺序。跨会话的经历时间线没有接入。 |
+| Y · 关系网 | 给记忆之间的联系标明类型。召回时可以从一次命中沿关系走两跳，例如从回滚策略，经验证清单，找到没有提及“回滚”的事故复盘。 | 按关键词和向量找候选，再重排片段。参赛流程没有持续建立这张关系网，也没有沿已保存的关系做两跳召回。 |
+| Z · 事实演化 | 同一事实有了新值，可以把旧值标为已替代，同时保留它当时成立的记录。 | 新旧说法都按消息保存，返回的片段可以带日期。参赛版没有为同一事实维护版本。 |
+| E · 体验 | 经历这件事的智能体亲自记录当时的感受，以及这段经历会怎样影响日后的回应。 | 检索可以找回一段表达感受的原话。参赛流程没有智能体撰写、复核体验记录的环节。 |
+| M · 代谢 | 定期回看哪些记忆该巩固、降权或进入归档复核，供以后多次召回使用。 | 每次 `Search` 为当前问题排列候选片段。两次查询之间没有运行长期记忆的代谢巡检。 |
+
+[完整版中文 README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.zh-CN.md) · [五轴怎样参与写入、夜间整理和召回](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/docs/CONNECTING_XYZEM.md)
 
 [官方分赛道成绩](#official-cycle-2-results) · [版本与源码](#version-and-source-correspondence) · [部署](#install-and-configure-linux--macos-python-39) · [API](#api-contract)
 
 **LMC-5 serves as a retriever in the AML exam.** `Add` stores a user's conversation. `Search` retrieves passages by keyword and vector similarity, combines the results and reranks candidates with JEV.
 
-In the full system, memories can change between conversations. An overnight job checks new records against earlier ones, links related experiences, tracks changes in facts and adjusts recall weights. The synchronous Add/Search workflow used for this submission has no separate consolidation stage. The competition service therefore runs only the retrieval portion of LMC-5. See the [main project README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.md) for how timeline, relations, fact evolution, experience and metabolism work together.
+## What does the AML edition leave out?
+
+The exam calls `Add` to store conversation turns and `Search` to retrieve passages. The submission runs no **overnight memory consolidation** between those requests. In Kelin’s full deployment, the overnight job splits conversations into episodes, extracts candidate memories and checks them against earlier records and the original dialogue. The resulting timelines, links and fact states guide later recall.
+
+| Capability | Full LMC-5 | AML competition edition |
+| --- | --- | --- |
+| X · Timeline | Groups memories from different sessions into the same narrative thread, preserving how an experience began, developed and ended. | Retains supplied message timestamps and session provenance. Options can include neighboring turns or present hits in time order. The adapter does not assemble cross-session narrative threads. |
+| Y · Relations | Stores typed links and can follow them for two hops. A rollback policy can lead through a verification checklist to an incident retrospective that never mentions rollback. | Finds candidates by keyword and vector similarity, then reranks passages. It does not maintain a persistent memory graph or traverse its edges during search. |
+| Z · Fact evolution | A new value can supersede an earlier value for the same fact while preserving its history. | Stores both statements as messages and can return their dates. It does not maintain a current version for each fact. |
+| E · Experience | The agent that lived an experience records how it felt and how it should shape a later response. | Can retrieve a message that expresses a feeling. The submission has no step for the agent to author or review an experience record. |
+| M · Metabolism | Periodically identifies memories to reinforce, downweight or review for archiving. These decisions inform future recall. | Ranks passages for the current request. No memory lifecycle review runs between searches. |
+
+[Full project README](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/README.md) · [How the axes participate in writing, overnight consolidation and recall](https://github.com/wuxuyun0606-collab/lmc-5/blob/main/docs/CONNECTING_XYZEM.md)
 
 ## 克霖讲完整的 LMC-5
 
