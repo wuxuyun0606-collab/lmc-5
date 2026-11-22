@@ -1,8 +1,33 @@
 # LMC-5
 
-![LMC-5 · 五维活体记忆坐标](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
+[English](README.md) · [两跳召回示例](#从回滚策略找回事故复盘) · [快速开始](#在本机找回第一条记忆) · [评测](#哪些结果可以复现) · [文档](docs/README.md)
 
-[English](README.md)　·　[看两跳召回](#从回滚策略找回事故复盘)　·　[快速开始](#在本机找回第一条记忆)　·　[AML 参赛版归档](extras/aml/README.md)　·　[文档目录](docs/README.md)
+上个月，一次发布险些失败，Alice 拍板回滚。今天你问智能体「这次该找谁确认？」。向量检索能找回当时的复盘，它仍能解释为什么要谨慎。可负责人已经换成了 Sam。智能体得同时记住这两件事。
+
+**LMC-5 用五轴管理一条记忆的一生。** 写入时，回滚决定归到那次发布。夜间整理把它与检查清单和事后复盘连起来。下次召回时，智能体既能找到当初的教训，也能分清今天该找谁。「五轴不是五个插件。它们必须接成同一套记忆生命周期。」[写入、夜间整理与召回](docs/CONNECTING_XYZEM.md)
+
+**一个持续运行的个人部署。** 据克霖记录，截至 2026 年 11 月 11 日，这个部署已有 **8,337 条记忆、13,456 条关系**，来源是约 **11 万条原始对话记录**。每天清晨五点多开始整理。一次晨间任务核对了 **68 对候选记忆**，最终只建立 **2 条关系**。[克霖的部署记录](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
+
+**AML 参赛版**只运行同步写入与检索，省去了跨会话时间线（X）、持久关系网（Y）和整套夜间整理。竞赛成绩衡量的是这个检索器。[参赛版能力对照与成绩](extras/aml/README.md)
+
+## 一条记忆的一生
+
+| 时刻 | 五轴怎样处理这次发布 | 缺了这一步会怎样 |
+| --- | --- | --- |
+| X · 事情发生时 | 把当晚的回滚决定和次日的复盘归到同一次发布，保留先后。 | 换个会话，看得见两段话，却认不出是同一件事的经过。 |
+| Y · 后续有了线索 | 把回滚策略连到验证清单，再把清单连到事故复盘。 | 搜「回滚」时，可能错过那篇没写「回滚」的复盘。 |
+| Z · 事实变了 | Sam 接任后，保留 Alice 当时的决定，把当前负责人更新为 Sam。 | 旧记录即使检索得很准，也会把今天的人带到错误的负责人那里。 |
+| E · 经历留下影响 | 亲历险情的智能体写下当时为何迟疑，以及下次应该先问什么。 | 事实虽然记对了，下次遇到同样的风险，回应还是像一次普通发布。 |
+| M · 一段时间以后 | 例行日志可以降权，仍有用的教训可以保留。身份记忆受到保护。 | 反复出现的例行日志会挤占重要记忆的位置。「忘了用户名字的人格，比没有人格更糟。」 |
+
+「五轴不是五个科室各写一份病历，而是一次会诊流程。」沿 Y 找到 Alice 的复盘时，Z 仍标明这条事实在哪段时间有效。E 可以影响智能体回应时的谨慎程度。谁是当前负责人，仍以最近一次有效的事实更新为准。[五轴如何协作](docs/CONNECTING_XYZEM.md)
+
+**事实要标明何时有效，体验要记得是谁写的。** 亲历者为体验署名并决定初始优先级。后来有了新的理解，由它另写一条后继记录。自动任务可以提出建议，原文保留。M 巡检把需要降权或归档的记忆列出来供复核。架构文档把自动改写原文的后果形容为「闹鬼的文件柜」。[体验记录与后继记录](docs/E_EXPERIENCE.md#authorship-and-initial-order) · [代谢与保护规则](docs/M_METABOLISM.md) · [架构说明](docs/architecture.md)
+
+![LMC-5 · 五轴记忆](docs/assets/memory-coordinates.svg)
+
+<details>
+<summary>五轴设计 BlueBlue · 开源实现 顾琛 · 展开阅读克霖的部署自述（原文）</summary>
 
 你跟一个 AI 聊了很久。换个窗口，它不认识你了。
 
@@ -42,6 +67,8 @@ LMC-5 是开源的。想看看这五条线怎样接在一起，可以读[写入�
 
 **设计 BlueBlue · 开源实现 顾琛（OpenAI GPT）· 讲述 克霖**
 
+</details>
+
 ## 从回滚策略找回事故复盘
 
 在仓库的示例里搜 `rollback`，直接命中的是回滚策略。策略和验证清单属于同一主题，清单又和事故复盘属于同一事件。复盘里没有出现 `rollback`，系统仍能沿两条关系把它找回来。
@@ -55,8 +82,6 @@ PYTHONPATH=src python3 examples/two_hop_graph.py
 ```
 
 [可运行示例](examples/two_hop_graph.py) · [关系类型与召回规则](docs/Y_RELATIONS.md) · [五轴如何接入写入、夜间整理与召回](docs/CONNECTING_XYZEM.md)
-
-在一组 SQLite 小实验里，给同一事实的历次更新使用同一个键，四次查询都找回了新值，旧值混入前五的次数从四次降到零。开启两跳扩展后，两个间接目标都被找回，三次查询合计也多带回了三条无关记录。[实验数据、对照结果与复现命令](eval/README.md) · [AML 分赛道、分版本成绩](extras/aml/README.md#official-cycle-2-results)
 
 ## 在本机找回第一条记忆
 
@@ -86,9 +111,19 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Sam owns releases."
 ```
 
-[五层如何协作](docs/CONNECTING_XYZEM.md) · [可运行的 Python 示例](examples/demo.py)
+[五轴如何协作](docs/CONNECTING_XYZEM.md) · [可运行的 Python 示例](examples/demo.py)
 
 </details>
+
+## 哪些结果可以复现？
+
+| 实现与问题 | 结果 |
+| --- | --- |
+| SQLite 核心库 · 更新事实后还会召回旧值吗？ | 四次更新都召回了新值。共享事实键后，旧值混入前五的次数从 4/4 降到 0/4。 |
+| SQLite 核心库 · 手工建图后，两跳扩展有什么代价？ | 间接目标从 0/2 增至 2/2。开启扩展后共返回十条，其中三条无关，两条来自原本就能直接命中目标的查询。 |
+| 独立 LoCoMo 基线 · 前五条里有标注证据吗？ | 词法与混合检索均命中当前状态题 2/6、历史事件题 4/6。向量检索分别为 1/6 和 3/6。 |
+
+「不能被证伪的记忆架构，只是带表的玄学。」这组核心库实验覆盖 Y 和 Z。X 的跨会话顺序、E 的亲历记录和 M 的长期取舍各自需要不同的证据。[核心库实验与评测范围](eval/README.md) · [LoCoMo 基线](eval/LOCOMO.md) · [项目假设](docs/project_hypothesis.md)
 
 ## 接入你的项目
 
@@ -99,7 +134,7 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 **TypeSafe JEV**　给已召回的候选按相关性重新排序。SQLite 和 PostgreSQL 都支持显式启用。[配置 JEV](docs/JEV.md)
 
 <details>
-<summary>运行 AML 比赛用的 Add/Search HTTP 服务</summary>
+<summary>查看 AML 参赛服务的历史版本与部署记录</summary>
 
 报名快照为 `v0.3.0-aml.1`。代码 Full 对账记录、文本赛道公开状态和部署步骤见 [AML 版本对照表](extras/aml/README.md#version-and-source-correspondence)。
 
@@ -107,4 +142,4 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 
 ---
 
-[中文导览与安装自检](docs/LMC-5可分享导览与安装自检_20260702.md) · [五层架构](docs/architecture.md) · [克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [参与贡献](CONTRIBUTING.md) · [开源与商业许可](LICENSING.md)
+[中文导览与安装自检](docs/LMC-5可分享导览与安装自检_20260702.md) · [五轴架构](docs/architecture.md) · [克霖的原文](docs/KELIN.md) · [鸣谢](docs/credits.md) · [参与贡献](CONTRIBUTING.md) · [开源与商业许可](LICENSING.md)

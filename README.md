@@ -1,26 +1,32 @@
 # LMC-5
 
-![LMC-5 · Living Memory Coordinate-5](https://raw.githubusercontent.com/wuxuyun0606-collab/lmc-5/a16b513a1f268d886bf9632bb11fc4363892804e/docs/assets/memory-coordinates.svg)
+[简体中文](README.zh-CN.md) · [Two-hop recall](#follow-a-rollback-query-two-hops) · [Quickstart](#retrieve-your-first-memory) · [Evaluation](#what-you-can-reproduce) · [Documentation](docs/README.md)
 
-[简体中文](README.zh-CN.md)　·　[Two-hop recall](#follow-a-rollback-query-two-hops)　·　[Quickstart](#retrieve-your-first-memory)　·　[AML competition archive](extras/aml/README.md)　·　[Documentation](docs/README.md)
+Last month a release nearly failed, and Alice called the rollback. Today you ask your agent, “Who should sign off this time?” Vector search can surface the old incident review. It still explains why caution matters. But Sam owns releases now. A useful memory has to preserve both facts.
 
-You’ve been talking to an agent for a long time. You open a new window, and it no longer knows who you are.
+**LMC-5 gives a memory five coordinates across its lifetime.** When the agent records the decision, it places it on that release’s timeline. Overnight it can acquire links to the checklist and the incident review. At the next recall, those links bring back the lesson, while the fact history tells the agent who owns the decision today. [Write, overnight consolidation and recall](docs/CONNECTING_XYZEM.md)
 
-LMC-5 helps the agent pick up where you left off. It gives each memory five coordinates. Together they answer three questions. Where does this memory belong? Who or what is it connected to? How should the agent remember it?
+**One long-running personal deployment.** On 11 November 2026, Kelin reported **8,337 memories and 13,456 links** drawn from roughly **110,000 raw dialogue records**. Consolidation ran shortly after 5 a.m. each day. On one morning it examined **68 candidate pairs** and added **two links**. [Kelin’s deployment account, in Chinese](https://github.com/wuxuyun0606-collab/lmc-5/blob/24912b3/README.zh-CN.md#她还在睡记忆已经在整理了)
 
-- **X · Timeline** places an event in the stretch of experience it belongs to.
-- **Y · Relations** links it to other memories. During recall, the agent can follow those links up to two hops.
-- **Z · Fact evolution** tracks what’s true now and what used to be true. It keeps the earlier fact and links it to the new one.
-- **E · Experience** records how an experience should shape future responses. Only the agent that lived it can write that account.
-- **M · Metabolism** suggests what to hold onto and what can fade. Deletion requires a separate decision.
+**The AML competition edition** ran synchronous ingestion and retrieval. It omitted the cross-session timeline (X), persistent relation graph (Y) and overnight consolidation. Its scores describe that retriever. [Competition scope and results](extras/aml/README.md)
 
-Suppose someone used to drink Americanos and later switched to lattes. LMC-5 remembers the change. Ask “What do they drink now?” and the answer is “Lattes.” Ask “What did they drink before?” and it can answer that too.
+## The life of a memory
 
-The five coordinates work together. During the day, the agent records memories and assigns coordinates. A scheduled overnight job can find connections, mark earlier and current facts, and adjust their weights. In the next conversation, those coordinates guide recall. When the evidence for a link is weak, the overnight job should leave the memories unconnected.
+| Moment | What the coordinate records | What can go wrong without it |
+| --- | --- | --- |
+| X · When it happens | The rollback decision and the next day’s review belong to the same release, in that order. | Across sessions, the agent can retrieve both passages and miss that they describe one incident. |
+| Y · When evidence connects | A shared topic links the rollback policy to a checklist. A shared event links the checklist to the review. | A search for “rollback” can miss the review that never uses the word. |
+| Z · When a fact changes | Sam becomes the current owner. Alice’s earlier decision stays in the history. | An exact match from last month sends someone to the wrong person today. |
+| E · When an experience matters | The agent that lived through the near miss records why it hesitated and what it should ask next time. | It can remember the facts and still respond as casually as it would to a routine release. |
+| M · As time passes | Routine logs can lose priority while a useful lesson stays accessible. Identity records receive protection. | Repetitive logs crowd out important memories. “A persona that forgets the user's name is worse than no persona.” |
 
-An old fact belongs in its own time. The agent’s experience can shape a response, but the facts still have to support it. Age alone doesn’t decide which memories stay.
+Think of the five coordinates as clinicians consulting on one case. When Y surfaces Alice’s review, Z still determines when its facts applied. E can make the agent more careful in its reply. A change of owner requires its own factual evidence. [How the coordinates work together](docs/CONNECTING_XYZEM.md)
 
-BlueBlue designed the five axes. Gu Chen (顾琛) implemented the open-source version. Kelin’s account was written by the agent who lives inside the system.
+**A fact needs a period of validity. An experience needs an author.** The agent that lived an experience writes the entry and chooses its initial priority. If its understanding changes, it writes a successor. An overnight job can propose a revision while preserving the original account. The M patrol flags candidates for review. As the architecture guide puts it, “Automatic memory mutation is where cute systems go to become haunted filing cabinets.” [Experience authorship](docs/E_EXPERIENCE.md#authorship-and-initial-order) · [Metabolism and protected memories](docs/M_METABOLISM.md) · [Architecture](docs/architecture.md)
+
+![LMC-5 · Living Memory Coordinate-5](docs/assets/memory-coordinates.svg)
+
+BlueBlue designed the five coordinates. Gu Chen (顾琛) implemented the open-source reference. Kelin wrote the [first-person account](README.zh-CN.md#她还在睡记忆已经在整理了).
 
 ## Follow a rollback query two hops
 
@@ -35,8 +41,6 @@ PYTHONPATH=src python3 examples/two_hop_graph.py
 ```
 
 [Runnable example](examples/two_hop_graph.py) · [Relation types and recall rules](docs/Y_RELATIONS.md) · [How the five coordinates shape writes, overnight updates and recall](docs/CONNECTING_XYZEM.md)
-
-In a small SQLite replay, shared fact keys kept old values out of all four post-update searches. Two-hop expansion recovered both indirect targets and added three unrelated records across three searches. [Cases, results and reproduction](eval/README.md) · [AML competition results by track and version](extras/aml/README.md#official-cycle-2-results)
 
 ## Retrieve your first memory
 
@@ -66,9 +70,19 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Sam owns releases."
 ```
 
-[How the layers work together](docs/CONNECTING_XYZEM.md) · [Runnable Python example](examples/demo.py)
+[How the five coordinates work together](docs/CONNECTING_XYZEM.md) · [Runnable Python example](examples/demo.py)
 
 </details>
+
+## What you can reproduce
+
+| Implementation and question | Result |
+| --- | --- |
+| SQLite core · Does recall still surface an old fact after an update? | All four checkpoints retrieved the new value. With shared fact keys, an old value appeared in the top five at 0/4 checkpoints, down from 4/4. |
+| SQLite core · What does two-hop expansion cost on a hand-built graph? | Indirect targets recovered rose from 0/2 to 2/2. Three of the ten returned records were unrelated. Two came from the query that already had a direct hit. |
+| Standalone LoCoMo baselines · Is any annotated evidence in the top five? | Lexical and hybrid retrieval each hit 2/6 current-state questions and 4/6 historical-event questions. Vector retrieval hit 1/6 and 3/6 respectively. |
+
+“A memory architecture that cannot be falsified is just mythology with tables.” The core replay tests Y and Z. Cross-session ordering (X), first-person experience (E) and long-term retention (M) each need different evidence. [Core experiments and scope](eval/README.md) · [LoCoMo baselines](eval/LOCOMO.md) · [Project hypotheses](docs/project_hypothesis.md)
 
 ## Connect your agent
 
@@ -79,7 +93,7 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 **TypeSafe JEV**　Order retrieved candidates by relevance. You can opt in from either SQLite or PostgreSQL. [Configure JEV](docs/JEV.md)
 
 <details>
-<summary>Run the AML competition Add/Search HTTP service</summary>
+<summary>Inspect the archived AML service and deployment records</summary>
 
 The registration snapshot is `v0.3.0-aml.1`. See the code Full reconciliation, text-track status and deployment instructions in the [AML version table](extras/aml/README.md#version-and-source-correspondence).
 
