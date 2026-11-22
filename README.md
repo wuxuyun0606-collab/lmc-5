@@ -18,7 +18,7 @@ Last month a release nearly failed, and Alice called the rollback. Today you ask
 | Y · When evidence connects | A shared topic links the rollback policy to a checklist. A shared event links the checklist to the review. | A search for “rollback” can miss the review that never uses the word. |
 | Z · When a fact changes | Sam becomes the current owner. Alice’s earlier decision stays in the history. | An exact match from last month sends someone to the wrong person today. |
 | E · When an experience matters | The agent that lived through the near miss records why it hesitated and what it should ask next time. | It can remember the facts and still respond as casually as it would to a routine release. |
-| M · As time passes | Routine logs can lose priority while a useful lesson stays accessible. Identity records receive protection. | Repetitive logs crowd out important memories. “A persona that forgets the user's name is worse than no persona.” |
+| M · As time passes | Routine logs can lose priority while a useful lesson stays accessible. Identity records receive protection. | Repetitive logs crowd out important memories. As the metabolism guide puts it, “A persona that forgets the user's name is worse than no persona.” |
 
 Think of the five coordinates as clinicians consulting on one case. When Y surfaces Alice’s review, Z still determines when its facts applied. E can make the agent more careful in its reply. A change of owner requires its own factual evidence. M cleanup can begin only after the Z audit identifies which facts are current. [How the coordinates work together](docs/CONNECTING_XYZEM.md)
 
@@ -70,6 +70,14 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --content "Sam owns releases."
 ```
 
+Then list the stored records:
+
+```sh
+lmc5 list --db demo.sqlite
+```
+
+Sam’s entry has `active_fact` set to `true`. Alice’s entry is still there, with `active_fact` set to `false`.
+
 [How the five coordinates work together](docs/CONNECTING_XYZEM.md) · [Runnable Python example](examples/demo.py)
 
 </details>
@@ -79,10 +87,10 @@ lmc5 add --db demo.sqlite --fact-key release.owner --title "Release owner" --con
 | Implementation and question | Result |
 | --- | --- |
 | SQLite core · Does recall still surface an old fact after an update? | All four checkpoints retrieved the new value. With shared fact keys, an old value appeared in the top five at 0/4 checkpoints, down from 4/4. |
-| SQLite core · What does two-hop expansion cost on a hand-built graph? | Indirect targets recovered rose from 0/2 to 2/2. Three of the ten returned records were unrelated. Two came from the query that already had a direct hit. |
+| SQLite core · What does two-hop expansion cost on a hand-built graph? | Indirect targets recovered rose from 0/2 to 2/2. Three of the ten returned records were unrelated. Two of those three came from the query that already had a direct hit. |
 | Standalone LoCoMo baselines · Is any annotated evidence in the top five? | Lexical and hybrid retrieval each hit 2/6 current-state questions and 4/6 historical-event questions. Vector retrieval hit 1/6 and 3/6 respectively. |
 
-“A memory architecture that cannot be falsified is just mythology with tables.” The core replay tests Y and Z. Cross-session ordering (X), first-person experience (E) and long-term retention (M) each need different evidence. [Core experiments and scope](eval/README.md) · [LoCoMo baselines](eval/LOCOMO.md) · [Project hypotheses](docs/project_hypothesis.md)
+As the project hypotheses put it, “A memory architecture that cannot be falsified is just mythology with tables.” The core SQLite replay tests Y and Z. This replay does not evaluate cross-session ordering (X), the quality of first-person experience records (E), or long-term retention decisions (M). [Core experiments and scope](eval/README.md) · [LoCoMo baselines](eval/LOCOMO.md) · [Project hypotheses](docs/project_hypothesis.md)
 
 ## Connect your agent
 
