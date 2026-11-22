@@ -36,6 +36,8 @@ PYTHONPATH=src python3 examples/two_hop_graph.py
 
 [Runnable example](examples/two_hop_graph.py) · [Relation types and recall rules](docs/Y_RELATIONS.md) · [How the five coordinates shape writes, overnight updates and recall](docs/CONNECTING_XYZEM.md)
 
+In a small SQLite replay, shared fact keys kept old values out of all four post-update searches. Two-hop expansion recovered both indirect targets and added three unrelated records across three searches. [Cases, results and reproduction](eval/README.md) · [AML competition results by track and version](extras/aml/README.md#official-cycle-2-results)
+
 ## Retrieve your first memory
 
 Start with Git and Python 3.9+ with SQLite FTS5. Run these commands in a macOS or Linux shell.

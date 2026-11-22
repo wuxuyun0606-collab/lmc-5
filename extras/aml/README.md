@@ -77,6 +77,16 @@ For the original registration implementation, use the tagged snapshot below.
 | Code Full · 25 Oct source reconciliation | [`aml-code-full-reconciliation-20261025`](https://github.com/wuxuyun0606-collab/lmc-5/tree/aml-code-full-reconciliation-20261025/extras/aml) · [`4f72877`](https://github.com/wuxuyun0606-collab/lmc-5/blob/4f72877621eed555e17c72db6e1a40bc7c762855/extras/aml/CODING-SNAPSHOT-20261025.md) | On 13 Nov the maintainers reconciled the retained October source on `fix/aml-serving-recovery`. The snapshot records that comparison. |
 | Text-track retest · 30 Oct | No publicly verified commit | The reconciliation excludes the text retest implementation. |
 
+## Local dependency replay
+
+For an isolated Python environment at this revision, install the resolved HTTP client dependencies from the repository root:
+
+```sh
+python -m pip install --require-hashes -r extras/aml/requirements.lock
+```
+
+The lock covers Python distributions for local replay. The competition snapshot, Python interpreter, SQLite engine and external providers have separate version histories. To refresh the lock from the declared ranges, run `uv pip compile --universal --python-version 3.9 --generate-hashes --no-header extras/aml/requirements.txt -o extras/aml/requirements.lock` and run the adapter tests.
+
 ## Registration snapshot
 
 The serving sources were exported on 2026-10-16 from the exam deployment using

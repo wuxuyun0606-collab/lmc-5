@@ -1,0 +1,32 @@
+{
+  "fact_updates": [
+    {"query": "coffee", "key": "preference.beverage", "versions": ["I order an Americano.", "I order a latte."]},
+    {"query": "handover", "key": "release.owner", "versions": ["Alice signs off.", "Jo signs off.", "Sam signs off."]},
+    {"query": "commute", "key": "route.mode", "versions": ["I take the bus.", "I take the train."]}
+  ],
+  "graph": {
+    "records": {
+      "policy": "Rollback procedure",
+      "checklist": "Verification checklist",
+      "review": "Incident retrospective",
+      "inventory": "Quarterly equipment inventory",
+      "exhibit": "Museum exhibition",
+      "catalogue": "Loan catalogue",
+      "receipt": "Courier receipt",
+      "draft": "Unconfirmed shipping instructions"
+    },
+    "edges": [
+      ["policy", "checklist", "same_topic", 0.9],
+      ["checklist", "review", "same_event", 0.8],
+      ["policy", "inventory", "same_project", 0.9],
+      ["exhibit", "catalogue", "same_event", 0.9],
+      ["catalogue", "receipt", "same_event", 0.8],
+      ["exhibit", "draft", "supports", 1.0]
+    ],
+    "queries": [
+      {"query": "rollback", "target": "review", "relevant": ["policy", "checklist", "review"]},
+      {"query": "museum", "target": "receipt", "relevant": ["exhibit", "catalogue", "receipt"]},
+      {"query": "retrospective", "target": "review", "relevant": ["review"]}
+    ]
+  }
+}

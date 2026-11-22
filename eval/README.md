@@ -1,0 +1,33 @@
+# SQLite recall experiments
+
+Run from the repository root with Python 3.9+ and SQLite FTS5:
+
+```sh
+PYTHONPATH=src python3 eval/replay.py
+```
+
+The runner prints a JSON row per query and configuration. Each configuration replays the same synthetic [cases](cases.json) in a fresh in-memory database with a five-record return limit. It uses the public SQLite write and recall APIs and needs no model, API key or network connection.
+
+## Z · Which fact is current?
+
+Three subjects change over time: a drink preference, a release owner who changes twice, and a commute. After each change the runner immediately retrieves the subject. One pass writes ordinary notes; the other gives successive versions of a subject the same fact key. Wording, write order and queries are identical. The query occurs in the title in both passes.
+
+| Four update checkpoints | New value in top 5 | Any old value in top 5 | Empty result | All previous values stored as superseded |
+| --- | ---: | ---: | ---: | ---: |
+| Ordinary notes | 4/4 | 4/4 | 0/4 | 0/4 |
+| Shared fact key | 4/4 | 0/4 | 0/4 | 4/4 |
+
+The last column inspects the stored records after each update. It measures preservation and labeling of earlier values. Answering a natural-language question about the past and inferring fact keys from conversation would require separate evaluations.
+
+## Y · What does following an edge add?
+
+The graph has eight records. Two queries need two hops to reach the labeled target. A third directly matches its target. Both runs have all the edges. Only the recall option `expand_relations` changes. The fixture lists the target and the useful supporting records for each query.
+
+| Three queries | Two-hop targets in top 5 | Direct target in top 5 | Unrelated records / all returned |
+| --- | ---: | ---: | ---: |
+| Expansion off | 0/2 | 1/1 | 0/3 |
+| Expansion on | 2/2 | 1/1 | 3/10 |
+
+The rollback query also reached an irrelevant inventory record through a valid project edge. The direct query already had its answer and gained two unnecessary neighbors. A connection can be valid even when it adds no evidence for the question.
+
+These counts describe seven hand-written checkpoints and queries. The AML leaderboard covers a different retrieval system. To measure generalization, the next experiment should fix a public dataset revision and sample, label current and historical questions separately, and compare lexical, vector and hybrid retrieval at the same return budget.

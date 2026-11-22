@@ -7,4 +7,5 @@ logs/
 run/
 *.jsonl
 *.lock
+!requirements.lock
 *.sqlite*
